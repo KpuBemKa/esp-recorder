@@ -1,8 +1,13 @@
-idf_component_register(SRCS 
-                    "main.cpp" 
-                    "config.cpp" 
-                    "server.cpp" 
-                    "..\\lib\\audio_input\\src\\I2SMEMSSampler.cpp"
-                    "..\\lib\\sd_card\\src\\SDCard.cpp"
-                    "..\\lib\\wav_file\\src\\WAVFileWriter.cpp"                    
-                    INCLUDE_DIRS ".")
+idf_component_register(SRCS "main.cpp"
+                            "config.cpp"
+                            "server.cpp"    
+                    INCLUDE_DIRS "."
+                    PRIV_REQUIRES wav_file
+                                  sd_card
+                                  i2s_sampler
+                                  esp_netif
+                                  esp_event
+                                  esp_wifi
+                                  nvs_flash
+                                  esp_timer
+                    )

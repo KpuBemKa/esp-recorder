@@ -3,7 +3,7 @@
 #include <freertos/FreeRTOS.h>
 #include <driver/i2s.h>
 
-class I2SMEMSSampler
+class I2sSampler
 {
 private:
     i2s_pin_config_t m_i2sPins;
@@ -14,7 +14,7 @@ protected:
     void configureI2S();
 
 public:
-    I2SMEMSSampler(i2s_port_t i2s_port, i2s_pin_config_t &i2s_pins, i2s_config_t i2s_config);
+    I2sSampler(i2s_port_t i2s_port, i2s_pin_config_t &i2s_pins, i2s_config_t i2s_config);
     void start();
     void stop();
     int read(int16_t *samples, int count,bool test=false);

@@ -1,16 +1,19 @@
 {
   "C_Cpp.intelliSenseEngine": "default",
-  "idf.portWin": "COM4",
+  "idf.portWin": "COM9",
   "idf.adapterTargetName": "esp32c6",
   "idf.openOcdConfigs": [
     "board/esp32c6-ftdi.cfg"
   ],
-  "C_Cpp.default.compilerPath": "C:\\espressif-tools\\tools\\riscv32-esp-elf\\esp-12.2.0_20230208\\riscv32-esp-elf\\bin\\riscv32-esp-elf-gcc.exe",
+  // "C_Cpp.default.compilerPath": "C:\\espressif-tools\\tools\\riscv32-esp-elf\\esp-12.2.0_20230208\\riscv32-esp-elf\\bin\\riscv32-esp-elf-gcc.exe",
+  "C_Cpp.default.compilerPath": "C:\\Users\\Admin\\dev\\tools\\esp-5.2\\tools\\tools\\riscv32-esp-elf\\esp-13.2.0_20230928\\riscv32-esp-elf\\bin\\riscv32-esp-elf-gcc.exe",
   "idf.flashType": "UART",
   "files.associations": {
     "bitset": "cpp",
     "algorithm": "cpp",
     "*.tcc": "cpp"
   },
-  "C_Cpp.errorSquiggles": "disabled"
+  "C_Cpp.errorSquiggles": "disabled",
+  "idf.espIdfPathWin": "C:\\Users\\Admin\\dev\\tools\\esp-5.2\\v5.2\\esp-idf",
+  "idf.toolsPathWin": "c:\\Users\\Admin\\dev\\tools\\esp-5.2\\tools"
 }

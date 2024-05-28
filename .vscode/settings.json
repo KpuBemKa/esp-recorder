@@ -1,6 +1,6 @@
 {
   "C_Cpp.intelliSenseEngine": "default",
-  "idf.portWin": "COM9",
+  "idf.portWin": "COM11",
   "idf.adapterTargetName": "esp32c6",
   "idf.openOcdConfigs": [
     "board/esp32c6-ftdi.cfg"
@@ -54,10 +54,12 @@
     "stdexcept": "cpp",
     "streambuf": "cpp",
     "cinttypes": "cpp",
-    "typeinfo": "cpp"
+    "typeinfo": "cpp",
+    "expected": "cpp"
   },
   "C_Cpp.errorSquiggles": "disabled",
   "idf.espIdfPathWin": "C:\\Users\\Admin\\dev\\tools\\esp-5.2\\v5.2\\esp-idf",
   "idf.toolsPathWin": "c:\\Users\\Admin\\dev\\tools\\esp-5.2\\tools",
-  "editor.tabSize": 2
+  "editor.tabSize": 2,
+  "C_Cpp.clang_format_fallbackStyle": "{ BasedOnStyle: Mozilla, ColumnLimit: 100 }",
 }

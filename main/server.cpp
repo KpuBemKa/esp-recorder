@@ -15,14 +15,14 @@
 
 #include "server.h"
 
-#define HOST_IP_ADDR "192.168.0.14"
-#define PORT 3333
+#define HOST_IP_ADDR "192.168.50.193"
+#define PORT 63960
 
 static const char *TAG = "server";
 static const char *payload = "Message from ESP32 ";
 
 
-void send_to_server()
+void start_connection()
 {
     char rx_buffer[128];
     char host_ip[] = HOST_IP_ADDR;
@@ -64,6 +64,7 @@ void send_to_server()
                 ESP_LOGE(TAG, "recv failed: errno %d", errno);
                 break;
             }
+            
             // Data received
             else {
                 rx_buffer[len] = 0; // Null-terminate whatever we received and treat like a string

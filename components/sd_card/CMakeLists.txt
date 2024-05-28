@@ -3,4 +3,5 @@ idf_component_register(SRCS "sd_card.cpp"
                        REQUIRES driver
                        PRIV_REQUIRES log
                                      fatfs
+                                     settings
 )

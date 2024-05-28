@@ -1,25 +1,18 @@
 #pragma once
 
-#include <freertos/FreeRTOS.h>
-#include <driver/i2s.h>
+#include <cstdint>
+#include <vector>
+
+#include "driver/i2s_std.h"
 
 class I2sSampler
 {
-private:
-    i2s_pin_config_t m_i2sPins;
-
-protected:
-    i2s_port_t m_i2sPort = I2S_NUM_0;
-    i2s_config_t m_i2s_config;
-    void configureI2S();
-
 public:
-    I2sSampler(i2s_port_t i2s_port, i2s_pin_config_t &i2s_pins, i2s_config_t i2s_config);
-    void start();
-    void stop();
-    int read(int16_t *samples, int count,bool test=false);
-    int sample_rate()
-    {
-        return m_i2s_config.sample_rate;
-    }
+  esp_err_t Init(const i2s_std_config_t& i2s_config);
+  esp_err_t DeInit();
+
+  std::vector<int16_t> ReadSamples(const std::size_t max_samples);
+
+private:
+  i2s_chan_handle_t m_rx_handle;
 };

@@ -4,22 +4,22 @@
 
 const char TAG[] = "WAV_WRITER";
 
-int
+esp_err_t
 WavWriter::Open(const std::string_view file_path, const std::size_t sample_rate)
 {
   m_fp = fopen(file_path.data(), "wb");
 
   if (m_fp == nullptr) {
-    return -1;
+    return ESP_ERR_INVALID_STATE;
   }
 
   m_header.sample_rate = sample_rate;
   // write out the header - we'll fill in some of the blanks later
-  int written = fwrite(&m_header, sizeof(wav_header_t), 1, m_fp);
+  const int written = fwrite(&m_header, sizeof(wav_header_t), 1, m_fp);
 
   m_file_size = sizeof(wav_header_t);
 
-  return written;
+  return written == sizeof(wav_header_t) ? ESP_OK : ESP_FAIL;
 }
 
 void

@@ -12,79 +12,87 @@
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
 
-static const char* TAG = "SDCard";
+#include "settings.hpp"
 
-#define SPI_DMA_CHAN 3 // DMA AUTO
+const char TAG[] = "SD_CARD";
 
-SDCard::SDCard(const char* mount_point,
-               gpio_num_t miso,
-               gpio_num_t mosi,
-               gpio_num_t clk,
-               gpio_num_t cs)
+#if DEBUG_SD
+#define LOG_I(...) ESP_LOGI(TAG, __VA_ARGS__)
+#else
+#define LOG_I(...)
+#endif
+
+#define LOG_E(...) ESP_LOGE(TAG, __VA_ARGS__)
+#define LOG_W(...) ESP_LOGW(TAG, __VA_ARGS__)
+
+constexpr spi_host_device_t SD_HOST_DEVICE = spi_host_device_t::SPI2_HOST;
+
+esp_err_t
+SDCard::Init()
 {
-  m_mount_point = mount_point;
-  esp_err_t ret;
-  // Options for mounting the filesystem.
-  // If format_if_mount_failed is set to true, SD card will be partitioned and
-  // formatted in case when mounting fails.
-  esp_vfs_fat_sdmmc_mount_config_t mount_config = { .format_if_mount_failed =
-                                                      true,
-                                                    .max_files = 5,
-                                                    .allocation_unit_size =
-                                                      16 * 1024 };
+  const esp_vfs_fat_sdmmc_mount_config_t mount_config = { .format_if_mount_failed = true,
+                                                          .max_files = 1,
+                                                          .allocation_unit_size = (16 * 1024),
+                                                          .disk_status_check_enable = true };
 
-  ESP_LOGI(TAG, "Initializing SD card");
+  LOG_I("Initializing SD card...");
 
-  spi_bus_config_t bus_cfg = { .mosi_io_num = mosi,
-                               .miso_io_num = miso,
-                               .sclk_io_num = clk,
-                               .quadwp_io_num = -1,
-                               .quadhd_io_num = -1,
-                               .max_transfer_sz = 4092,
-                               .flags = 0,
-                               .intr_flags = 0 };
-  ret =
-    spi_bus_initialize(spi_host_device_t(m_host.slot), &bus_cfg, SPI_DMA_CHAN);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to initialize bus.");
-    return;
+  LOG_I("Initializing the SPI bus...");
+
+  const spi_bus_config_t spi_bus_config{
+    .mosi_io_num = SD_PIN_MOSI,
+    .miso_io_num = SD_PIN_MISO,
+    .sclk_io_num = SD_PIN_CLK,
+
+    .data2_io_num = gpio_num_t::GPIO_NUM_NC,
+    .data3_io_num = gpio_num_t::GPIO_NUM_NC,
+    .data4_io_num = gpio_num_t::GPIO_NUM_NC,
+    .data5_io_num = gpio_num_t::GPIO_NUM_NC,
+    .data6_io_num = gpio_num_t::GPIO_NUM_NC,
+    .data7_io_num = gpio_num_t::GPIO_NUM_NC,
+
+    .max_transfer_sz = 4092, ///< Maximum transfer size, in bytes. Defaults to 4092 if 0 when DMA
+                             ///< enabled, or to `SOC_SPI_MAXIMUM_BUFFER_SIZE` if DMA is disabled.
+    .flags = SPICOMMON_BUSFLAG_MASTER,
+    .isr_cpu_id = esp_intr_cpu_affinity_t::ESP_INTR_CPU_AFFINITY_AUTO
+  };
+
+  esp_err_t result = spi_bus_initialize(
+    spi_host_device_t::SPI2_HOST, &spi_bus_config, spi_common_dma_t::SPI_DMA_CH_AUTO);
+  if (result != ESP_OK) {
+    LOG_E(
+      "%s:%d | Failed to initialize the SPI bus: %s", __FILE__, __LINE__, esp_err_to_name(result));
+    return result;
   }
 
-  // This initializes the slot without card detect (CD) and write protect (WP)
-  // signals. Modify slot_config.gpio_cd and slot_config.gpio_wp if your board
-  // has these signals.
+  // Initialize the SD card and mount the partition
+  LOG_I("Mounting the partition...");
+
+  m_host_config = SDSPI_HOST_DEFAULT();
+
   sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-  slot_config.gpio_cs = cs;
-  slot_config.host_id = spi_host_device_t(m_host.slot);
+  slot_config.gpio_cs = SD_PIN_CS;
 
-  ret = esp_vfs_fat_sdspi_mount(
-    m_mount_point.c_str(), &m_host, &slot_config, &mount_config, &m_card);
-
-  if (ret != ESP_OK) {
-    if (ret == ESP_FAIL) {
-      ESP_LOGE(TAG,
-               "Failed to mount filesystem. "
-               "If you want the card to be formatted, set the "
-               "EXAMPLE_FORMAT_IF_MOUNT_FAILED menuconfig option.");
-    } else {
-      ESP_LOGE(TAG,
-               "Failed to initialize the card (%s). "
-               "Make sure SD card lines have pull-up resistors in place.",
-               esp_err_to_name(ret));
-    }
-    return;
+  result = esp_vfs_fat_sdspi_mount(
+    VFS_MOUNT_POINT.data(), &m_host_config, &slot_config, &mount_config, &m_card_info);
+  if (result != ESP_OK) {
+    LOG_E(
+      "%s:%d | Failed to mount the FAT partition: %s", __FILE__, __LINE__, esp_err_to_name(result));
+    return result;
   }
-  ESP_LOGI(TAG, "SDCard mounted at: %s", m_mount_point.c_str());
 
-  // Card has been initialized, print its properties
-  sdmmc_card_print_info(stdout, m_card);
+#ifdef DEBUG_SD
+  LOG_I("SD Card info:");
+  sdmmc_card_print_info(stdout, m_card_info);
+#endif
+
+  return ESP_OK;
 }
 
-SDCard::~SDCard()
+esp_err_t
+SDCard::DeInit()
 {
-  // All done, unmount partition and disable SDMMC or SPI peripheral
-  esp_vfs_fat_sdcard_unmount(m_mount_point.c_str(), m_card);
-  ESP_LOGI(TAG, "Card unmounted");
-  // deinitialize the bus after all devices are removed
-  spi_bus_free(spi_host_device_t(m_host.slot));
+  const esp_err_t result = esp_vfs_fat_sdcard_unmount(VFS_MOUNT_POINT.data(), m_card_info);
+
+  return result | spi_bus_free(SD_HOST_DEVICE);
 }

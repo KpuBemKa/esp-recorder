@@ -19,6 +19,17 @@ const char TAG[] = "I2S_SAMPLER";
 esp_err_t
 I2sSampler::Init(const i2s_std_config_t& i2s_config)
 {
+  if (m_is_init) {
+    LOG_I("I2S sampler is already initialized. De-initializing to apply the new config...");
+
+    esp_err_t result = DeInit();
+    if (result != ESP_OK) {
+      LOG_E("%s:%d | De-initialize failed: %s", __FILE__, __LINE__, esp_err_to_name(result));
+    } else {
+      LOG_I("De-initialized.");
+    }
+  }
+
   LOG_I("Initializing I2S sampler...");
 
   // Create a new I2S channel
@@ -52,15 +63,22 @@ I2sSampler::Init(const i2s_std_config_t& i2s_config)
     return esp_result;
   }
 
+  m_is_init = true;
+
   return esp_result;
 }
 
 esp_err_t
 I2sSampler::DeInit()
 {
+  if (!m_is_init) {
+    LOG_I("I2S is not initialized. Skipping deinitialization...");
+    return ESP_OK;
+  }
+
   esp_err_t esp_result = i2s_channel_disable(m_rx_handle);
   if (esp_result != ESP_OK) {
-    LOG_I("%s:%d | Unable to disable I2S RX channel: %s",
+    LOG_E("%s:%d | Unable to disable I2S RX channel: %s",
           __FILE__,
           __LINE__,
           esp_err_to_name(esp_result));
@@ -69,29 +87,53 @@ I2sSampler::DeInit()
 
   esp_result = i2s_del_channel(m_rx_handle);
   if (esp_result != ESP_OK) {
-    LOG_I("%s:%d | Unable to delete I2S RX channel: %s",
+    LOG_E("%s:%d | Unable to delete I2S RX channel: %s",
           __FILE__,
           __LINE__,
           esp_err_to_name(esp_result));
     return esp_result;
   }
 
+  m_is_init = false;
+
   return esp_result;
+}
+
+I2sSampler::~I2sSampler()
+{
+  DeInit();
+}
+
+void
+I2sSampler::DiscardSamples(const std::size_t samples_ammount)
+{
+  std::vector<uint32_t> buffer;
+  buffer.resize(samples_ammount);
+
+  const esp_err_t esp_result =
+    i2s_channel_read(m_rx_handle, buffer.data(), samples_ammount * sizeof(buffer[0]), nullptr, 100);
+
+  if (esp_result != ESP_OK) {
+    LOG_I(
+      "%s:%d | Unable to discard RX buffer: %s", __FILE__, __LINE__, esp_err_to_name(esp_result));
+  }
 }
 
 std::vector<int16_t>
 I2sSampler::ReadSamples(const std::size_t max_samples)
 {
   // a buffer which will store read data
-  std::vector<int16_t> samples_vector;
-  samples_vector.resize(max_samples);
+  std::vector<int32_t> raw_samples_vector;
+  raw_samples_vector.resize(max_samples);
 
+  // how many bytes have to be read
+  const std::size_t bytes_to_read = max_samples * sizeof(raw_samples_vector[0]);
   // will store how many bytes were actually read
   std::size_t bytes_read = 0;
 
   // read the data
   const esp_err_t esp_result =
-    i2s_channel_read(m_rx_handle, samples_vector.data(), max_samples, &bytes_read, 1'000);
+    i2s_channel_read(m_rx_handle, raw_samples_vector.data(), bytes_to_read, &bytes_read, 100);
 
   LOG_I("%u bytes have been read.", bytes_read);
 
@@ -102,10 +144,19 @@ I2sSampler::ReadSamples(const std::size_t max_samples)
     return {}; // return empty array
   }
 
-  // resize the samples vector
-  samples_vector.resize(bytes_read);
+  // number of samples that have been read
+  const std::size_t samples_read = bytes_read / sizeof(raw_samples_vector[0]);
 
-  return samples_vector;
+  std::vector<int16_t> result_samples;
+  result_samples.reserve(samples_read);
+
+  for (std::size_t i = 0; i < samples_read; ++i) {
+    // data occupies 24 of 32 bits
+    // shifting discards 8 zero and 8 least significant bits
+    result_samples.push_back(raw_samples_vector[i] >> 16);
+  }
+
+  return result_samples;
 }
 
 // esp_err_t

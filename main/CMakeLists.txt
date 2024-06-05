@@ -10,6 +10,10 @@ idf_component_register(SRCS "main.cpp"
                                 esp_wifi
                                 nvs_flash
                                 esp_timer
+                                led_strip
                                 settings
                                 communication
+                                spiffs
+                                screen
+                                spi_driver
 )

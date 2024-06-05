@@ -55,7 +55,11 @@
     "streambuf": "cpp",
     "cinttypes": "cpp",
     "typeinfo": "cpp",
-    "expected": "cpp"
+    "expected": "cpp",
+    "cstring": "cpp",
+    "set": "cpp",
+    "list": "cpp",
+    "*.inc": "cpp"
   },
   "C_Cpp.errorSquiggles": "disabled",
   "idf.espIdfPathWin": "C:\\Users\\Admin\\dev\\tools\\esp-5.2\\v5.2\\esp-idf",

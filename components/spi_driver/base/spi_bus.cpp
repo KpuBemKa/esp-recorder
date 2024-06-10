@@ -8,6 +8,10 @@ SpiBus::InitBus(const spi_host_device_t bus_id,
                 const gpio_num_t pin_mosi,
                 const gpio_num_t pin_miso)
 {
+  if (m_is_init) {
+    return ESP_OK;
+  }
+
   const spi_bus_config_t bus_config{
     .mosi_io_num = pin_mosi,
     .miso_io_num = pin_miso,

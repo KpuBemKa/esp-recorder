@@ -16,6 +16,11 @@ public:
     return instance;
   }
 
+  ~Spi2Bus()
+  {
+    SpiBus::DeInitBus(SPI2_HOST);
+  }
+
   /// @brief Init the SPI2 bus in 3 line mode
   /// @param pin_clk Clock pin
   /// @param pin_mosi Master Out Slave In pin

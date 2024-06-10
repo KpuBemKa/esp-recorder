@@ -16,4 +16,5 @@ idf_component_register(SRCS "main.cpp"
                                 spiffs
                                 screen
                                 spi_driver
+                                ftp_client
 )

@@ -16,6 +16,7 @@
 #include "led_strip.h"
 
 #include "communication.hpp"
+#include "ftp_client.hpp"
 #include "i2s_sampler.hpp"
 #include "screen_driver.hpp"
 #include "sd_card.hpp"
@@ -36,6 +37,11 @@ extern int32_t currentmax;
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
+
+#define CONFIG_FTP_SERVER "192.168.50.111"
+#define CONFIG_FTP_PORT 21
+#define CONFIG_FTP_USER "esp-recordings"
+#define CONFIG_FTP_PASSWORD "Admin0308"
 
 const char TAG[] = "MAIN";
 
@@ -133,11 +139,11 @@ wait_for_button_push()
 //   esp_err_t ret = esp_vfs_spiffs_register(&conf);
 //   if (ret != ESP_OK) {
 //     if (ret == ESP_FAIL) {
-//       ESP_LOGE(TAG, "Failed to mount or format filesystem");
+//       LOG_E("Failed to mount or format filesystem");
 //     } else if (ret == ESP_ERR_NOT_FOUND) {
-//       ESP_LOGE(TAG, "Failed to find SPIFFS partition");
+//       LOG_E("Failed to find SPIFFS partition");
 //     } else {
-//       ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
+//       LOG_E("Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
 //     }
 //     return ret;
 //   }
@@ -145,11 +151,11 @@ wait_for_button_push()
 //   size_t total = 0, used = 0;
 //   ret = esp_spiffs_info(NULL, &total, &used);
 //   if (ret != ESP_OK) {
-//     ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
+//     LOG_E("Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
 //     return ret;
 //   }
 
-//   ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
+//   LOG_I("Partition size: total: %d, used: %d", total, used);
 
 //   return ESP_OK;
 // }
@@ -158,7 +164,7 @@ esp_err_t
 recordd(const std::string_view fname)
 {
 
-  ESP_LOGI(TAG, "Preparing to record...");
+  LOG_I("Preparing to record...");
   screen_driver.Clear();
   screen_driver.DisplayTextRow(0, "Preparing");
   screen_driver.DisplayTextRow(1, "to record...");
@@ -285,7 +291,7 @@ setup()
   }
   ESP_ERROR_CHECK(ret);
 
-  // ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
+  // LOG_I("ESP_WIFI_MODE_STA");
 
   // wifi_init_sta();
 }
@@ -379,7 +385,7 @@ app_main(void)
   // esp_log_level_set("main", ESP_LOG_INFO);
   // esp_log_level_set("I2sSampler", ESP_LOG_INFO);
 
-  ESP_LOGI(TAG, "Starting up...");
+  LOG_I("Starting up...");
 
   setup();
 
@@ -403,12 +409,9 @@ app_main(void)
 
   // task_test_SSD1309();
 
-  // Connection wifi_connection;
-  // wifi_connection.InitWifi(EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+  // LOG_I("Mounting SDCard on /sdcard");
 
-  // ESP_LOGI(TAG, "Mounting SDCard on /sdcard");
-
-  // ESP_LOGI(TAG, "Creating microphone");
+  // LOG_I("Creating microphone");
 
   gpio_set_direction(gpio_num_t::GPIO_NUM_13, gpio_mode_t::GPIO_MODE_OUTPUT);
 
@@ -428,26 +431,29 @@ app_main(void)
 esp_err_t
 start_recording_process()
 {
-  ESP_LOGI(TAG, "Preparing to record...");
+  LOG_I("Preparing to record...");
 
   // Initialize the SPI bus
   spi::Spi2Bus& spi_bus = spi::Spi2Bus::GetInstance();
-  esp_err_t result = spi_bus.InitBus(SPI_PIN_CLK, SPI_PIN_MOSI, SPI_PIN_MISO);
-  if (result != ESP_OK) {
-    LOG_E(
-      "%s:%d | Failed to initialize the SPI bus: %s", __FILE__, __LINE__, esp_err_to_name(result));
-    return result;
+  esp_err_t esp_result = spi_bus.InitBus(SPI_PIN_CLK, SPI_PIN_MOSI, SPI_PIN_MISO);
+  if (esp_result != ESP_OK) {
+    LOG_E("%s:%d | Failed to initialize the SPI bus: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(esp_result));
+    return esp_result;
   }
 
   screen_driver.Init();
 
+  screen_driver.Clear();
   screen_driver.Clear();
   screen_driver.DisplayTextRow(0, "Preparing");
   screen_driver.DisplayTextRow(1, "to record...");
 
   // initialize the SD card & mount the partition
   SDCard sd_card;
-  esp_err_t esp_result = sd_card.Init();
+  esp_result = sd_card.Init();
   if (esp_result != ESP_OK) {
     LOG_E("%s:%d | Error initializing the SD card: %s",
           __FILE__,
@@ -459,19 +465,37 @@ start_recording_process()
     return esp_result;
   }
 
-  if (record_micro("test.wav") == ESP_OK) {
-  }
+  vTaskDelay(pdMS_TO_TICKS(1'000));
 
-  // esp_result = writer.Close();
-  // if (esp_result != ESP_OK) {
-  //   LOG_E("%s:%d | Error closing recorded .wav file: %s",
-  //         __FILE__,
-  //         __LINE__,
-  //         esp_err_to_name(esp_result));
-  //   return esp_result;
+  // if (record_micro("test.wav") == ESP_OK) {
+  //   esp_result = send_files_to_server();
+
+  //   screen_driver.Clear();
+  //   screen_driver.DisplayTextRow(0, "Recording");
+  //   screen_driver.DisplayTextRow(1, "transmission");
+
+  //   if (esp_result == ESP_OK) {
+  //     screen_driver.DisplayTextRow(2, "success.");
+  //   } else {
+  //     LOG_E("Error transmitting recorded files: %s", esp_err_to_name(esp_result));
+  //     screen_driver.DisplayTextRow(2, "error.");
+  //   }
   // }
 
-  // and de-init the sd card
+  esp_result = send_files_to_server();
+
+  screen_driver.Clear();
+  screen_driver.DisplayTextRow(0, "Recording");
+  screen_driver.DisplayTextRow(1, "transmission");
+
+  if (esp_result == ESP_OK) {
+    screen_driver.DisplayTextRow(2, "success.");
+  } else {
+    LOG_E("Error transmitting recorded files: %s", esp_err_to_name(esp_result));
+    screen_driver.DisplayTextRow(2, "error.");
+  }
+
+  // de-init the sd card
   esp_result = sd_card.DeInit();
   if (esp_result != ESP_OK) {
     LOG_E("%s:%d | Error de-initializing the SD card: %s",
@@ -481,6 +505,7 @@ start_recording_process()
     return esp_result;
   }
 
+  // de-init the screen
   esp_result = screen_driver.DeInit();
   if (esp_result != ESP_OK) {
     LOG_E("%s:%d | Error de-initializing the screen: %s",
@@ -490,6 +515,7 @@ start_recording_process()
     return esp_result;
   }
 
+  // de-init the SPI bus
   esp_result = spi_bus.DeInitBus();
   if (esp_result != ESP_OK) {
     LOG_E("%s:%d | Error de-initializing the SPI bus: %s",
@@ -541,12 +567,12 @@ record_micro(const std::string_view file_name)
     return esp_result;
   }
 
+  // First few samples are a bit rough, it's best to discard them
+  i2s_sampler.DiscardSamples(128 * 60);
+
   LOG_I("Recording...");
   screen_driver.Clear();
   screen_driver.DisplayTextRow(0, "Recording...");
-
-  // First few samples are a bit rough, it's best to discard them
-  i2s_sampler.DiscardSamples(128 * 60);
 
   // keep writing until the user releases the button
   while (IsRecButtonPressed()) {
@@ -578,5 +604,73 @@ record_micro(const std::string_view file_name)
 esp_err_t
 send_files_to_server()
 {
+  Connection wifi_connection;
+  const esp_err_t esp_result =
+    wifi_connection.InitWifi(EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+  if (esp_result != ESP_OK) {
+    LOG_E("%s:%d | Error initializing Wi-Fi: %s", __FILE__, __LINE__, esp_err_to_name(esp_result));
+    return esp_result;
+  }
+
+  // Open FTP server
+  LOG_I("ftp server: %s", CONFIG_FTP_SERVER);
+  LOG_I("ftp user  : %s", CONFIG_FTP_USER);
+  static NetBuf_t* ftpClientNetBuf = NULL;
+  FtpClient* ftpClient = getFtpClient();
+  // int connect = ftpClient->ftpClientConnect(CONFIG_FTP_SERVER, 21, &ftpClientNetBuf);
+  // int connect = ftpClient->ftpClientConnect(CONFIG_FTP_SERVER, 2121, &ftpClientNetBuf);
+  int connect = ftpClient->ftpClientConnect(CONFIG_FTP_SERVER, CONFIG_FTP_PORT, &ftpClientNetBuf);
+  LOG_I("connect=%d", connect);
+  if (connect == 0) {
+    LOG_E("FTP server connect fail");
+    return ESP_FAIL;
+  }
+
+  // Login FTP server
+  int login = ftpClient->ftpClientLogin(CONFIG_FTP_USER, CONFIG_FTP_PASSWORD, ftpClientNetBuf);
+  LOG_I("login=%d", login);
+  if (login == 0) {
+    LOG_E("FTP server login fail");
+    return ESP_FAIL;
+  }
+
+  // // Remote Directory
+  // char line[128];
+  // // ftpClient->ftpClientDir(outFileName, "/", ftpClientNetBuf);
+  // ftpClient->ftpClientDir(outFileName, ".", ftpClientNetBuf);
+  // FILE* f = fopen(outFileName, "r");
+  // if (f == NULL) {
+  //   LOG_E("Failed to open file for reading");
+  //   return;
+  // }
+  // while (fgets(line, sizeof(line), f) != NULL) {
+  //   int len = strlen(line);
+  //   line[len - 1] = 0;
+  //   LOG_I("%s", line);
+  // }
+  // fclose(f);
+  // LOG_I("");
+
+  // // Use POSIX and C standard library functions to work with files.
+  // // Create file
+  // f = fopen(srcFileName, "w");
+  // if (f == NULL) {
+  //   LOG_E("Failed to open file for writing");
+  //   return;
+  // }
+  // fprintf(f, "Hello World!\n");
+  // fclose(f);
+  // LOG_I("Wrote the text on %s", srcFileName);
+
+  const std::string wav_filepath = SDCard::GetFilePath("test.wav");
+
+  // Put file to FTP server
+  ftpClient->ftpClientPut(wav_filepath.c_str(), "test.wav", FTP_CLIENT_BINARY, ftpClientNetBuf);
+  LOG_I("ftpClientPut %s ---> %s", wav_filepath.c_str(), ".");
+
+  ftpClient->ftpClientQuit(ftpClientNetBuf);
+
+  wifi_connection.DeInitWifi();
+
   return ESP_OK;
 }

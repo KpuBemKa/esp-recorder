@@ -615,11 +615,11 @@ send_files_to_server()
   // Open FTP server
   LOG_I("ftp server: %s", CONFIG_FTP_SERVER);
   LOG_I("ftp user  : %s", CONFIG_FTP_USER);
-  static NetBuf_t* ftpClientNetBuf = NULL;
-  FtpClient* ftpClient = getFtpClient();
+  // static NetBuf_t* ftpClientNetBuf = NULL;
+  FtpClient ftpClient;
   // int connect = ftpClient->ftpClientConnect(CONFIG_FTP_SERVER, 21, &ftpClientNetBuf);
   // int connect = ftpClient->ftpClientConnect(CONFIG_FTP_SERVER, 2121, &ftpClientNetBuf);
-  int connect = ftpClient->ftpClientConnect(CONFIG_FTP_SERVER, CONFIG_FTP_PORT, &ftpClientNetBuf);
+  int connect = ftpClient.ftpClientConnect(CONFIG_FTP_SERVER, CONFIG_FTP_PORT);
   LOG_I("connect=%d", connect);
   if (connect == 0) {
     LOG_E("FTP server connect fail");
@@ -627,17 +627,17 @@ send_files_to_server()
   }
 
   // Login FTP server
-  int login = ftpClient->ftpClientLogin(CONFIG_FTP_USER, CONFIG_FTP_PASSWORD, ftpClientNetBuf);
+  int login = ftpClient.ftpClientLogin(CONFIG_FTP_USER, CONFIG_FTP_PASSWORD);
   LOG_I("login=%d", login);
   if (login == 0) {
     LOG_E("FTP server login fail");
     return ESP_FAIL;
   }
 
-  // // Remote Directory
+  // Remote Directory
   // char line[128];
-  // // ftpClient->ftpClientDir(outFileName, "/", ftpClientNetBuf);
-  // ftpClient->ftpClientDir(outFileName, ".", ftpClientNetBuf);
+  // ftpClient->ftpClientDir(outFileName, "/", ftpClientNetBuf);
+  // ftpClient.ftpClientDir(outFileName, ".", ftpClientNetBuf);
   // FILE* f = fopen(outFileName, "r");
   // if (f == NULL) {
   //   LOG_E("Failed to open file for reading");
@@ -651,8 +651,8 @@ send_files_to_server()
   // fclose(f);
   // LOG_I("");
 
-  // // Use POSIX and C standard library functions to work with files.
-  // // Create file
+  // Use POSIX and C standard library functions to work with files.
+  // Create file
   // f = fopen(srcFileName, "w");
   // if (f == NULL) {
   //   LOG_E("Failed to open file for writing");
@@ -665,10 +665,10 @@ send_files_to_server()
   const std::string wav_filepath = SDCard::GetFilePath("test.wav");
 
   // Put file to FTP server
-  ftpClient->ftpClientPut(wav_filepath.c_str(), "test.wav", FTP_CLIENT_BINARY, ftpClientNetBuf);
-  LOG_I("ftpClientPut %s ---> %s", wav_filepath.c_str(), ".");
+  ftpClient.ftpClientPut(wav_filepath.c_str(), "test.wav", FTP_CLIENT_BINARY);
+  LOG_I("ftpClientPut %s ---> %s", wav_filepath.c_str(), "test.wav");
 
-  ftpClient->ftpClientQuit(ftpClientNetBuf);
+  ftpClient.ftpClientQuit();
 
   wifi_connection.DeInitWifi();
 

@@ -465,22 +465,20 @@ start_recording_process()
     return esp_result;
   }
 
-  vTaskDelay(pdMS_TO_TICKS(1'000));
+  if (record_micro("test.wav") == ESP_OK) {
+    esp_result = send_files_to_server();
 
-  // if (record_micro("test.wav") == ESP_OK) {
-  //   esp_result = send_files_to_server();
+    screen_driver.Clear();
+    screen_driver.DisplayTextRow(0, "Recording");
+    screen_driver.DisplayTextRow(1, "transmission");
 
-  //   screen_driver.Clear();
-  //   screen_driver.DisplayTextRow(0, "Recording");
-  //   screen_driver.DisplayTextRow(1, "transmission");
-
-  //   if (esp_result == ESP_OK) {
-  //     screen_driver.DisplayTextRow(2, "success.");
-  //   } else {
-  //     LOG_E("Error transmitting recorded files: %s", esp_err_to_name(esp_result));
-  //     screen_driver.DisplayTextRow(2, "error.");
-  //   }
-  // }
+    if (esp_result == ESP_OK) {
+      screen_driver.DisplayTextRow(2, "success.");
+    } else {
+      LOG_E("Error transmitting recorded files: %s", esp_err_to_name(esp_result));
+      screen_driver.DisplayTextRow(2, "error.");
+    }
+  }
 
   esp_result = send_files_to_server();
 

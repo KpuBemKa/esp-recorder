@@ -1,4 +1,4 @@
-idf_component_register(SRCS "ftp_client.cpp" "communication.cpp"
+idf_component_register(SRCS "communication.cpp"
                        INCLUDE_DIRS "."
                        REQUIRES driver
                                 esp_wifi

@@ -128,11 +128,11 @@ Connection::DeInitWifi()
 
   esp_netif_destroy(m_netif);
 
-  result = esp_netif_deinit();
-  if (result != ESP_OK) {
-    LOG_E("%s:%d | Error de-initializing netif: %s", __FILE__, __LINE__, esp_err_to_name(result));
-    return result;
-  }
+  // result = esp_netif_deinit();
+  // if (result != ESP_OK) {
+  //   LOG_E("%s:%d | Error de-initializing netif: %s", __FILE__, __LINE__, esp_err_to_name(result));
+  //   return result;
+  // }
 
   return ESP_OK;
 }

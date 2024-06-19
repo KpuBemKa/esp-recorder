@@ -80,7 +80,7 @@ public:
   int ftpClientClearCallback(NetBuf* nControl);
 
   /*Server connection*/
-  int ftpClientConnect(const char* host, uint16_t port, NetBuf** nControl);
+  int ftpClientConnect(const char* host, uint16_t port);
   int ftpClientLogin(const char* user, const char* pass);
   void ftpClientQuit();
   int ftpClientSetOptions(int opt, long val);
@@ -118,45 +118,5 @@ private:
   int acceptConnection(NetBuf* nData);
 
 private:
-  NetBuf nControl;
+  NetBuf m_nControl;
 };
-
-// typedef struct NetBuf NetBuf_t;
-
-// typedef struct
-// {
-//   /*Miscellaneous Functions*/
-//   int (*ftpClientSite)(const char* cmd, NetBuf_t* nControl);
-//   char* (*ftpClientGetLastResponse)(NetBuf_t* nControl);
-//   int (*ftpClientGetSysType)(char* buf, int max, NetBuf_t* nControl);
-//   int (*ftpClientGetFileSize)(const char* path, unsigned int* size, char mode, NetBuf_t*
-//   nControl); int (*ftpClientGetModDate)(const char* path, char* dt, int max, NetBuf_t* nControl);
-//   int (*ftpClientSetCallback)(const FtpClientCallbackOptions_t* opt, NetBuf_t* nControl);
-//   int (*ftpClientClearCallback)(NetBuf_t* nControl);
-//   /*Server connection*/
-//   int (*ftpClientConnect)(const char* host, uint16_t port, NetBuf_t** nControl);
-//   int (*ftpClientLogin)(const char* user, const char* pass, NetBuf_t* nControl);
-//   void (*ftpClientQuit)(NetBuf_t* nControl);
-//   int (*ftpClientSetOptions)(int opt, long val, NetBuf_t* nControl);
-//   /*Directory Functions*/
-//   int (*ftpClientChangeDir)(const char* path, NetBuf_t* nControl);
-//   int (*ftpClientMakeDir)(const char* path, NetBuf_t* nControl);
-//   int (*ftpClientRemoveDir)(const char* path, NetBuf_t* nControl);
-//   int (*ftpClientDir)(const char* outputfile, const char* path, NetBuf_t* nControl);
-//   int (*ftpClientNlst)(const char* outputfile, const char* path, NetBuf_t* nControl);
-//   int (*ftpClientMlsd)(const char* outputfile, const char* path, NetBuf_t* nControl);
-//   int (*ftpClientChangeDirUp)(NetBuf_t* nControl);
-//   int (*ftpClientPwd)(char* path, int max, NetBuf_t* nControl);
-//   /*File to File Transfer*/
-//   int (*ftpClientGet)(const char* outputfile, const char* path, char mode, NetBuf_t* nControl);
-//   int (*ftpClientPut)(const char* inputfile, const char* path, char mode, NetBuf_t* nControl);
-//   int (*ftpClientDelete)(const char* fnm, NetBuf_t* nControl);
-//   int (*ftpClientRename)(const char* src, const char* dst, NetBuf_t* nControl);
-//   /*File to Program Transfer*/
-//   int (*ftpClientAccess)(const char* path, int typ, int mode, NetBuf_t* nControl, NetBuf_t**
-//   nData); int (*ftpClientRead)(void* buf, int max, NetBuf_t* nData); int (*ftpClientWrite)(const
-//   void* buf, int len, NetBuf_t* nData); int (*ftpClientClose)(NetBuf_t* nData);
-// } FtpClient;
-
-// FtpClient*
-// getFtpClient(void);

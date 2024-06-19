@@ -151,7 +151,7 @@ FtpClient::readResponse(char c, NetBuf* ctl)
     match[3] = ' ';
     match[4] = '\0';
     do {
-      if (readLine(ctl->response, FTP_CLIENT_RESPONSE_BUFFER_SIZE, &nControl) == -1) {
+      if (readLine(ctl->response, FTP_CLIENT_RESPONSE_BUFFER_SIZE, &m_nControl) == -1) {
 #if FTP_CLIENT_DEBUG
         perror("FTP Client Error: readResponse, read failed");
 #endif
@@ -177,7 +177,7 @@ int
 FtpClient::sendCommand(const char* cmd, char expresp)
 {
   char buf[FTP_CLIENT_TEMP_BUFFER_SIZE];
-  if (nControl.dir != FTP_CLIENT_CONTROL)
+  if (m_nControl.dir != FTP_CLIENT_CONTROL)
     return 0;
 #if FTP_CLIENT_DEBUG == 2
   printf("FTP Client sendCommand: %s\n\r", cmd);
@@ -185,13 +185,13 @@ FtpClient::sendCommand(const char* cmd, char expresp)
   if ((strlen(cmd) + 3) > sizeof(buf))
     return 0;
   sprintf(buf, "%s\r\n", cmd);
-  if (send(nControl.handle, buf, strlen(buf), 0) <= 0) {
+  if (send(m_nControl.handle, buf, strlen(buf), 0) <= 0) {
 #if FTP_CLIENT_DEBUG
     perror("FTP Client sendCommand: write");
 #endif
     return 0;
   }
-  return readResponse(expresp, &nControl);
+  return readResponse(expresp, &m_nControl);
 }
 
 /*
@@ -216,7 +216,7 @@ FtpClient::xfer(const char* localfile, const char* path, int typ, int mode)
       ac[1] = 'b';
     local = fopen(localfile, ac);
     if (local == NULL) {
-      strncpy(nControl.response, strerror(errno), sizeof(nControl.response));
+      strncpy(m_nControl.response, strerror(errno), sizeof(m_nControl.response));
       return 0;
     }
   }
@@ -279,24 +279,24 @@ FtpClient::openPort(NetBuf** nData, int mode, int dir)
     struct sockaddr_in in;
   } sin;
 
-  if (nControl.dir != FTP_CLIENT_CONTROL)
+  if (m_nControl.dir != FTP_CLIENT_CONTROL)
     return -1;
   if ((dir != FTP_CLIENT_READ) && (dir != FTP_CLIENT_WRITE)) {
-    sprintf(nControl.response, "Invalid direction %d\n", dir);
+    sprintf(m_nControl.response, "Invalid direction %d\n", dir);
     return -1;
   }
   if ((mode != FTP_CLIENT_ASCII) && (mode != FTP_CLIENT_IMAGE)) {
-    sprintf(nControl.response, "Invalid mode %c\n", mode);
+    sprintf(m_nControl.response, "Invalid mode %c\n", mode);
     return -1;
   }
   // unsigned int l = sizeof(sin);
   socklen_t l = sizeof(sin);
-  if (nControl.cmode == FTP_CLIENT_PASSIVE) {
+  if (m_nControl.cmode == FTP_CLIENT_PASSIVE) {
     memset(&sin, 0, l);
     sin.in.sin_family = AF_INET;
     if (!sendCommand("PASV", '2'))
       return -1;
-    char* cp = strchr(nControl.response, '(');
+    char* cp = strchr(m_nControl.response, '(');
     if (cp == NULL)
       return -1;
     cp++;
@@ -309,7 +309,7 @@ FtpClient::openPort(NetBuf** nData, int mode, int dir)
     sin.sa.sa_data[0] = v[0];
     sin.sa.sa_data[1] = v[1];
   } else {
-    if (getsockname(nControl.handle, &sin.sa, &l) < 0) {
+    if (getsockname(m_nControl.handle, &sin.sa, &l) < 0) {
 #if FTP_CLIENT_DEBUG
       perror("FTP Client openPort: getsockname");
 #endif
@@ -323,7 +323,7 @@ FtpClient::openPort(NetBuf** nData, int mode, int dir)
 #endif
     return -1;
   }
-  if (nControl.cmode == FTP_CLIENT_PASSIVE) {
+  if (m_nControl.cmode == FTP_CLIENT_PASSIVE) {
     if (connect(sData, &sin.sa, sizeof(sin.sa)) == -1) {
 #if FTP_CLIENT_DEBUG
       perror("FTP Client openPort: connect");
@@ -382,17 +382,17 @@ FtpClient::openPort(NetBuf** nData, int mode, int dir)
   }
   ctrl->handle = sData;
   ctrl->dir = dir;
-  ctrl->idletime = nControl.idletime;
-  ctrl->idlearg = nControl.idlearg;
+  ctrl->idletime = m_nControl.idletime;
+  ctrl->idlearg = m_nControl.idlearg;
   ctrl->xfered = 0;
   ctrl->xfered1 = 0;
-  ctrl->cbbytes = nControl.cbbytes;
-  ctrl->ctrl = &nControl;
+  ctrl->cbbytes = m_nControl.cbbytes;
+  ctrl->ctrl = &m_nControl;
   if (ctrl->idletime.tv_sec || ctrl->idletime.tv_usec || ctrl->cbbytes)
-    ctrl->idlecb = nControl.idlecb;
+    ctrl->idlecb = m_nControl.idlecb;
   else
     ctrl->idlecb = NULL;
-  nControl.data = ctrl;
+  m_nControl.data = ctrl;
   *nData = ctrl;
   return 1;
 }
@@ -469,22 +469,22 @@ FtpClient::acceptConnection(NetBuf* nData)
   int rv = 0;
   fd_set mask;
   FD_ZERO(&mask);
-  FD_SET(nControl.handle, &mask);
+  FD_SET(m_nControl.handle, &mask);
   FD_SET(nData->handle, &mask);
   struct timeval tv;
   tv.tv_usec = 0;
   tv.tv_sec = FTP_CLIENT_ACCEPT_TIMEOUT;
-  int i = nControl.handle;
+  int i = m_nControl.handle;
   if (i < nData->handle)
     i = nData->handle;
   i = select(i + 1, &mask, NULL, NULL, &tv);
   if (i == -1) {
-    strncpy(nControl.response, strerror(errno), sizeof(nControl.response));
+    strncpy(m_nControl.response, strerror(errno), sizeof(m_nControl.response));
     closesocket(nData->handle);
     nData->handle = 0;
     rv = 0;
   } else if (i == 0) {
-    strcpy(nControl.response,
+    strcpy(m_nControl.response,
            "FTP Client accept connection "
            "timed out waiting for connection");
     closesocket(nData->handle);
@@ -502,14 +502,14 @@ FtpClient::acceptConnection(NetBuf* nData)
         rv = 1;
         nData->handle = sData;
       } else {
-        strncpy(nControl.response, strerror(i), sizeof(nControl.response));
+        strncpy(m_nControl.response, strerror(i), sizeof(m_nControl.response));
         nData->handle = 0;
         rv = 0;
       }
-    } else if (FD_ISSET(nControl.handle, &mask)) {
+    } else if (FD_ISSET(m_nControl.handle, &mask)) {
       closesocket(nData->handle);
       nData->handle = 0;
-      readResponse('2', &nControl);
+      readResponse('2', &m_nControl);
       rv = 0;
     }
   }
@@ -560,7 +560,7 @@ FtpClient::ftpClientGetSysType(char* buf, int max)
 {
   if (!sendCommand("SYST", '2'))
     return 0;
-  char* s = &nControl.response[4];
+  char* s = &m_nControl.response[4];
   int l = max;
   char* b = buf;
   while ((--l) && (*s != ' '))
@@ -590,7 +590,7 @@ FtpClient::ftpClientGetFileSize(const char* path, unsigned int* size, char mode)
   else {
     int resp;
     unsigned int sz;
-    if (sscanf(nControl.response, "%d %u", &resp, &sz) == 2)
+    if (sscanf(m_nControl.response, "%d %u", &resp, &sz) == 2)
       *size = sz;
     else
       rv = 0;
@@ -614,18 +614,18 @@ FtpClient::ftpClientGetModDate(const char* path, char* dt, int max)
   if (!sendCommand(buf, '2'))
     rv = 0;
   else
-    strncpy(dt, &nControl.response[4], max);
+    strncpy(dt, &m_nControl.response[4], max);
   return rv;
 }
 
 int
 FtpClient::ftpClientSetCallback(const FtpClientCallbackOptions_t* opt)
 {
-  nControl.idlecb = opt->cbFunc;
-  nControl.idlearg = opt->cbArg;
-  nControl.idletime.tv_sec = opt->idleTime / 1000;
-  nControl.idletime.tv_usec = (opt->idleTime % 1000) * 1000;
-  nControl.cbbytes = opt->bytesXferred;
+  m_nControl.idlecb = opt->cbFunc;
+  m_nControl.idlearg = opt->cbArg;
+  m_nControl.idletime.tv_sec = opt->idleTime / 1000;
+  m_nControl.idletime.tv_usec = (opt->idleTime % 1000) * 1000;
+  m_nControl.cbbytes = opt->bytesXferred;
   return 1;
 }
 
@@ -647,7 +647,7 @@ FtpClient::ftpClientClearCallback(NetBuf* nControl)
  * return 1 if connected, 0 if not
  */
 int
-FtpClient::ftpClientConnect(const char* host, uint16_t port, NetBuf** nControl)
+FtpClient::ftpClientConnect(const char* host, uint16_t port/* , NetBuf** nControl */)
 {
   ESP_LOGD(__FUNCTION__, "host=%s", host);
   struct sockaddr_in sin;
@@ -720,7 +720,7 @@ FtpClient::ftpClientConnect(const char* host, uint16_t port, NetBuf** nControl)
     free(ctrl);
     return 0;
   }
-  *nControl = ctrl;
+  m_nControl = *ctrl;
   return 1;
 }
 
@@ -737,7 +737,7 @@ FtpClient::ftpClientLogin(const char* user, const char* pass)
     return 0;
   sprintf(tempbuf, "USER %s", user);
   if (!sendCommand(tempbuf, '3')) {
-    if (nControl.response[0] == '2')
+    if (m_nControl.response[0] == '2')
       return 1;
     return 0;
   }
@@ -753,11 +753,11 @@ FtpClient::ftpClientLogin(const char* user, const char* pass)
 void
 FtpClient::ftpClientQuit()
 {
-  if (nControl.dir != FTP_CLIENT_CONTROL)
+  if (m_nControl.dir != FTP_CLIENT_CONTROL)
     return;
   sendCommand("QUIT", '2');
-  closesocket(nControl.handle);
-  free(nControl.buf);
+  closesocket(m_nControl.handle);
+  free(m_nControl.buf);
 }
 
 /*
@@ -773,31 +773,31 @@ FtpClient::ftpClientSetOptions(int opt, long val)
     case FTP_CLIENT_CONNMODE: {
       v = (int)val;
       if ((v == FTP_CLIENT_PASSIVE) || (v == FTP_CLIENT_ACTIVE)) {
-        nControl.cmode = v;
+        m_nControl.cmode = v;
         rv = 1;
       }
     } break;
 
     case FTP_CLIENT_CALLBACK: {
-      nControl.idlecb = (FtpClientCallback_t)val;
+      m_nControl.idlecb = (FtpClientCallback_t)val;
       rv = 1;
     } break;
 
     case FTP_CLIENT_IDLETIME: {
       v = (int)val;
       rv = 1;
-      nControl.idletime.tv_sec = v / 1000;
-      nControl.idletime.tv_usec = (v % 1000) * 1000;
+      m_nControl.idletime.tv_sec = v / 1000;
+      m_nControl.idletime.tv_usec = (v % 1000) * 1000;
     } break;
 
     case FTP_CLIENT_CALLBACKARG: {
       rv = 1;
-      nControl.idlearg = (void*)val;
+      m_nControl.idlearg = (void*)val;
     } break;
 
     case FTP_CLIENT_CALLBACKBYTES: {
       rv = 1;
-      nControl.cbbytes = (int)val;
+      m_nControl.cbbytes = (int)val;
     } break;
   }
   return rv;
@@ -914,7 +914,7 @@ FtpClient::ftpClientPwd(char* path, int max)
 {
   if (!sendCommand("PWD", '2'))
     return 0;
-  char* s = strchr(nControl.response, '"');
+  char* s = strchr(m_nControl.response, '"');
   if (s == NULL)
     return 0;
   s++;
@@ -999,7 +999,7 @@ FtpClient::ftpClientAccess(const char* path,
                            NetBuf** nData)
 {
   if ((path == NULL) && ((typ == FTP_CLIENT_FILE_WRITE) || (typ == FTP_CLIENT_FILE_READ))) {
-    sprintf(nControl.response, "Missing path argument for file transfer\n");
+    sprintf(m_nControl.response, "Missing path argument for file transfer\n");
     return 0;
   }
   char buf[FTP_CLIENT_TEMP_BUFFER_SIZE];
@@ -1034,7 +1034,7 @@ FtpClient::ftpClientAccess(const char* path,
     } break;
 
     default: {
-      sprintf(nControl.response, "Invalid open type %d\n", typ);
+      sprintf(m_nControl.response, "Invalid open type %d\n", typ);
       return 0;
     }
   }
@@ -1054,11 +1054,11 @@ FtpClient::ftpClientAccess(const char* path,
     *nData = NULL;
     return 0;
   }
-  if (nControl.cmode == FTP_CLIENT_ACTIVE) {
+  if (m_nControl.cmode == FTP_CLIENT_ACTIVE) {
     if (!acceptConnection(*nData)) {
       ftpClientClose(*nData);
       *nData = NULL;
-      nControl.data = NULL;
+      m_nControl.data = NULL;
       return 0;
     }
   }

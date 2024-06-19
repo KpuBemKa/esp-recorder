@@ -36,6 +36,8 @@ constexpr gpio_num_t SCREEN_PIN_CS = gpio_num_t::GPIO_NUM_18;
 
 constexpr std::string_view VFS_MOUNT_POINT = "/storage";
 
+constexpr std::string_view DEVICE_NAME = "esp-recorder";
+
 #define DEBUG_SD 1
 #define DEBUG_MIC 1
 #define DEBUG_WAV 1

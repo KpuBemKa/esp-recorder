@@ -1,10 +1,15 @@
 #include "communication.hpp"
 
 #include <algorithm>
+#include <ctime>
 
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_netif_sntp.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "settings.hpp"
 
 const char TAG[] = "TCP_COM";
@@ -21,8 +26,11 @@ const char TAG[] = "TCP_COM";
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
 
+constexpr int CONNECT_WAIT_TIMEOUT_MS = 2'000;
+
 esp_err_t
-Connection::InitWifi(const std::string_view ssid, const std::string_view password)
+Connection::InitWifi(const std::string_view ssid,
+                     const std::string_view password)
 {
   LOG_I("Initializing Wi-Fi...");
 
@@ -30,14 +38,20 @@ Connection::InitWifi(const std::string_view ssid, const std::string_view passwor
 
   esp_err_t result = esp_netif_init();
   if (result != ESP_OK) {
-    LOG_E("%s:%d | Error initializing netif: %s", __FILE__, __LINE__, esp_err_to_name(result));
+    LOG_E("%s:%d | Error initializing netif: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(result));
     return result;
   }
 
   // Create the event loop
   result = esp_event_loop_create_default();
   if (result != ESP_ERR_INVALID_STATE && result != ESP_OK) {
-    LOG_E("%s:%d | Error creating event loop : %s", __FILE__, __LINE__, esp_err_to_name(result));
+    LOG_E("%s:%d | Error creating event loop : %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(result));
     return result;
   }
 
@@ -48,12 +62,18 @@ Connection::InitWifi(const std::string_view ssid, const std::string_view passwor
   const wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   result = esp_wifi_init(&cfg);
   if (result != ESP_OK) {
-    LOG_E("%s:%d | Error initializing Wi-Fi : %s", __FILE__, __LINE__, esp_err_to_name(result));
+    LOG_E("%s:%d | Error initializing Wi-Fi : %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(result));
     return result;
   }
 
-  result = esp_event_handler_instance_register(
-    WIFI_EVENT, ESP_EVENT_ANY_ID, WifiEventHandler, this, &m_wifi_event_handler);
+  result = esp_event_handler_instance_register(WIFI_EVENT,
+                                               ESP_EVENT_ANY_ID,
+                                               WifiEventHandler,
+                                               this,
+                                               &m_wifi_event_handler);
   result |= esp_event_handler_instance_register(
     IP_EVENT, IP_EVENT_STA_GOT_IP, IpEventHandler, this, &m_ip_event_handler);
 
@@ -77,30 +97,50 @@ Connection::InitWifi(const std::string_view ssid, const std::string_view passwor
   // Set Wi-Fi in station mode
   result = esp_wifi_set_mode(wifi_mode_t::WIFI_MODE_STA);
   if (result != ESP_OK) {
-    LOG_E(
-      "%s:%d | Error setting Wi-Fi in AP mode: %s", __FILE__, __LINE__, esp_err_to_name(result));
+    LOG_E("%s:%d | Error setting Wi-Fi in AP mode: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(result));
     return result;
   }
 
   // Apply the settings
   result = esp_wifi_set_config(wifi_interface_t::WIFI_IF_STA, &wifi_config);
   if (result != ESP_OK) {
-    LOG_E(
-      "%s:%d | Error configuring Wi-Fi settings: %s", __FILE__, __LINE__, esp_err_to_name(result));
+    LOG_E("%s:%d | Error configuring Wi-Fi settings: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(result));
     return result;
   }
 
   // Start Wi-Fi
   result = esp_wifi_start();
   if (result != ESP_OK) {
-    LOG_E("%s:%d | Error starting Wi-Fi: %s", __FILE__, __LINE__, esp_err_to_name(result));
+    LOG_E("%s:%d | Error starting Wi-Fi: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(result));
     return result;
   }
 
-  LOG_I("Wi-Fi has been started. Waiting for connection... %d", m_is_wifi_connected);
+  LOG_I("Wi-Fi has been started. Waiting for connection... %d",
+        m_is_wifi_connected);
 
-  while (!IsWifiConnected()) {
+  // Wait `CONNECT_WAIT_TIMEOUT_MS` ms until Wi-Fi is connected
+  const TickType_t wait_end =
+    xTaskGetTickCount() + pdMS_TO_TICKS(CONNECT_WAIT_TIMEOUT_MS);
+  while (!IsWifiConnected() && xTaskGetTickCount() <= wait_end) {
     vTaskDelay(pdMS_TO_TICKS(100));
+  }
+
+  result = StartupSntpSync();
+  if (result != ESP_OK) {
+    LOG_E("%s:%d | Error starting SNTP service: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(result));
+    return result;
   }
 
   return ESP_OK;
@@ -109,15 +149,21 @@ Connection::InitWifi(const std::string_view ssid, const std::string_view passwor
 esp_err_t
 Connection::DeInitWifi()
 {
+  StopSntpSync();
+
   esp_err_t result = esp_wifi_stop();
   if (result != ESP_OK) {
-    LOG_E("%s:%d | Error stopping Wi-Fi: %s", __FILE__, __LINE__, esp_err_to_name(result));
+    LOG_E("%s:%d | Error stopping Wi-Fi: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(result));
     return result;
   }
 
-  result =
-    esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, m_wifi_event_handler);
-  result |= esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, m_ip_event_handler);
+  result = esp_event_handler_instance_unregister(
+    WIFI_EVENT, ESP_EVENT_ANY_ID, m_wifi_event_handler);
+  result |= esp_event_handler_instance_unregister(
+    IP_EVENT, ESP_EVENT_ANY_ID, m_ip_event_handler);
   if (result != ESP_OK) {
     LOG_E("%s:%d | Error unregistering Wi-Fi event handler: %s",
           __FILE__,
@@ -128,11 +174,15 @@ Connection::DeInitWifi()
 
   esp_netif_destroy(m_netif);
 
-  result = esp_netif_deinit();
-  if (result != ESP_OK) {
-    LOG_E("%s:%d | Error de-initializing netif: %s", __FILE__, __LINE__, esp_err_to_name(result));
-    return result;
-  }
+  /* Note: Deinitialization is not supported yet */
+  // result = esp_netif_deinit();
+  // if (result != ESP_OK) {
+  //   LOG_E("%s:%d | Error de-initializing netif: %s",
+  //         __FILE__,
+  //         __LINE__,
+  //         esp_err_to_name(result));
+  //   return result;
+  // }
 
   return ESP_OK;
 }
@@ -144,27 +194,61 @@ Connection::IsWifiConnected()
 }
 
 esp_err_t
-Connection::Connect(const std::string_view ip_address, const uint16_t port)
+Connection::StartupSntpSync()
 {
-  return ESP_ERR_NOT_SUPPORTED;
+  LOG_I("Syncronizing system time...");
+
+  const esp_sntp_config_t sntp_config{
+    .smooth_sync = false,
+    .server_from_dhcp = false,
+    .wait_for_sync = true,
+    .start = true,
+    .sync_cb = TimeSyncornizedCallback,
+    .renew_servers_after_new_IP = false,
+    .ip_event_to_renew = IP_EVENT_STA_GOT_IP,
+    .index_of_first_server = 0,
+    .num_of_servers = 1,
+    .servers = { "pool.ntp.org" },
+  };
+
+  esp_err_t esp_result = esp_netif_sntp_init(&sntp_config);
+  if (esp_result != ESP_OK) {
+    LOG_E("%s:%d | Error initializing SNTP: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(esp_result));
+    return esp_result;
+  }
+
+  return esp_result;
+}
+
+esp_err_t Connection::WaitForSntpSync()
+{
+  return esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10'000));
 }
 
 esp_err_t
-Connection::Disconnect()
+Connection::StopSntpSync()
 {
-  return ESP_ERR_NOT_SUPPORTED;
+  esp_netif_sntp_deinit();
+
+  return ESP_OK;
 }
 
-bool
-Connection::IsServerConnected()
+void
+Connection::TimeSyncornizedCallback(timeval* tv)
 {
-  return m_is_server_connected;
-}
+  LOG_I("System time has been syncronized with SNTP.");
 
-esp_err_t
-Connection::SendFile(const std::string_view file_path)
-{
-  return ESP_ERR_NOT_SUPPORTED;
+  const std::tm* dt = localtime(&tv->tv_sec);
+  LOG_I("Current system time: %4d.%02d.%02d %02d:%02d:%02d",
+        dt->tm_year + 1900,
+        dt->tm_mon,
+        dt->tm_mday,
+        dt->tm_hour,
+        dt->tm_min,
+        dt->tm_sec);
 }
 
 void
@@ -177,7 +261,8 @@ Connection::WifiEventHandler(void* arg,
 
   switch (event_id) {
     case wifi_event_t::WIFI_EVENT_STA_CONNECTED: {
-      // wifi_event_sta_connected_t* event = (wifi_event_sta_connected_t*)event_data;
+      // wifi_event_sta_connected_t* event =
+      // (wifi_event_sta_connected_t*)event_data;
       // connection_ptr->m_is_wifi_connected = true;
       LOG_I("Connected");
       break;
@@ -185,7 +270,8 @@ Connection::WifiEventHandler(void* arg,
 
     case wifi_event_t::WIFI_EVENT_STA_DISCONNECTED: {
       connection_ptr->m_is_wifi_connected = false;
-      if (connection_ptr->m_connect_try_count < connection_ptr->MAX_CONNECT_RETRIES) {
+      if (connection_ptr->m_connect_try_count <
+          connection_ptr->MAX_CONNECT_RETRIES) {
         esp_wifi_connect();
         connection_ptr->m_connect_try_count++;
         LOG_W("Connection failed. Retrying...");

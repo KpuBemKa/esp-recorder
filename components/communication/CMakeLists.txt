@@ -4,4 +4,5 @@ idf_component_register(SRCS "ftp_client.cpp" "communication.cpp"
                                 esp_wifi
                        PRIV_REQUIRES log
                                      settings
+                                     lwip
 )

@@ -20,6 +20,8 @@ public:
   /// @return file path
   static std::string GetFilePath(const std::string_view file_name);
 
+  static std::string_view GetMountPoint();
+
 private:
   bool m_is_init = false;
   

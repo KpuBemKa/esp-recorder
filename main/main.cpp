@@ -359,9 +359,17 @@ StartRecordingProcess()
   if (RecordMicro() == ESP_OK) {
     esp_result = SendStoredFilesToServer();
 
-    s_screen_driver.Clear();
-    s_screen_driver.DisplayTextRow(0, "Recording");
-    s_screen_driver.DisplayTextRow(1, "transmission");
+    screen_driver.Clear();
+    screen_driver.DisplayTextRow(0, "Recording");
+    screen_driver.DisplayTextRow(1, "transmission");
+
+    if (esp_result == ESP_OK) {
+      screen_driver.DisplayTextRow(2, "success.");
+    } else {
+      LOG_E("Error transmitting recorded files: %s", esp_err_to_name(esp_result));
+      screen_driver.DisplayTextRow(2, "error.");
+    }
+  }
 
     if (esp_result == ESP_OK) {
       s_screen_driver.DisplayTextRow(2, "success.");

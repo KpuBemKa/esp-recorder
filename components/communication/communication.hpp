@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ctime>
 #include <string_view>
 
 #include "esp_wifi.h"
@@ -7,15 +8,15 @@
 class Connection
 {
 public:
-  esp_err_t InitWifi(const std::string_view ssid, const std::string_view password);
+  esp_err_t InitWifi(const std::string_view ssid,
+                     const std::string_view password);
   esp_err_t DeInitWifi();
   bool IsWifiConnected();
 
-  esp_err_t Connect(const std::string_view ip_address, const uint16_t port);
-  esp_err_t Disconnect();
-  bool IsServerConnected();
-
-  esp_err_t SendFile(const std::string_view file_path);
+  esp_err_t StartupSntpSync();
+  esp_err_t WaitForSntpSync();
+  esp_err_t StopSntpSync();
+  static void TimeSyncornizedCallback(timeval* tv);
 
 private:
   static void WifiEventHandler(void* arg,
@@ -37,5 +38,4 @@ private:
   int m_connect_try_count = 0;
 
   bool m_is_wifi_connected = false;
-  bool m_is_server_connected = false;
 };

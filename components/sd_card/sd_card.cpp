@@ -31,10 +31,12 @@ constexpr spi_host_device_t SD_HOST_DEVICE = spi_host_device_t::SPI2_HOST;
 esp_err_t
 SDCard::Init()
 {
-  constexpr esp_vfs_fat_sdmmc_mount_config_t mount_config = { .format_if_mount_failed = true,
-                                                              .max_files = 1,
-                                                              .allocation_unit_size = (16 * 1024),
-                                                              .disk_status_check_enable = true };
+  constexpr esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+    .format_if_mount_failed = true,
+    .max_files = 1,
+    .allocation_unit_size = (16 * 1024),
+    .disk_status_check_enable = true
+  };
 
   LOG_I("Initializing SD card...");
 
@@ -58,11 +60,26 @@ SDCard::Init()
   sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
   slot_config.gpio_cs = SD_PIN_CS;
 
-  esp_err_t result = esp_vfs_fat_sdspi_mount(
-    VFS_MOUNT_POINT.data(), &m_host_config, &slot_config, &mount_config, &m_card_info);
+  esp_err_t result = esp_vfs_fat_sdspi_mount(VFS_MOUNT_POINT.data(),
+                                             &m_host_config,
+                                             &slot_config,
+                                             &mount_config,
+                                             &m_card_info);
   if (result != ESP_OK) {
-    LOG_E(
-      "%s:%d | Failed to mount the FAT partition: %s", __FILE__, __LINE__, esp_err_to_name(result));
+    const esp_err_t result =
+      esp_vfs_fat_sdcard_unmount(VFS_MOUNT_POINT.data(), m_card_info);
+    if (result != ESP_OK) {
+      LOG_E("%s:%d | Error unmounting the partition: %s",
+            __FILE__,
+            __LINE__,
+            esp_err_to_name(result));
+      return result;
+    }
+
+    LOG_E("%s:%d | Failed to mount the FAT partition: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(result));
     return result;
   }
 
@@ -86,10 +103,13 @@ SDCard::DeInit()
     return ESP_OK;
   }
 
-  const esp_err_t result = esp_vfs_fat_sdcard_unmount(VFS_MOUNT_POINT.data(), m_card_info);
+  const esp_err_t result =
+    esp_vfs_fat_sdcard_unmount(VFS_MOUNT_POINT.data(), m_card_info);
   if (result != ESP_OK) {
-    LOG_E(
-      "%s:%d | Error unmounting the partition: %s", __FILE__, __LINE__, esp_err_to_name(result));
+    LOG_E("%s:%d | Error unmounting the partition: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(result));
     return result;
   }
 
@@ -99,8 +119,8 @@ SDCard::DeInit()
 
   // result = spi_bus_free(SD_HOST_DEVICE);
   // if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
-  //   LOG_E("%s:%d | Failed to free the SPI bus: %s", __FILE__, __LINE__, esp_err_to_name(result));
-  //   return result;
+  //   LOG_E("%s:%d | Failed to free the SPI bus: %s", __FILE__, __LINE__,
+  //   esp_err_to_name(result)); return result;
   // }
 }
 
@@ -118,4 +138,10 @@ SDCard::GetFilePath(const std::string_view file_name)
   file_path.append(VFS_MOUNT_POINT).append(1, '/').append(file_name);
 
   return file_path;
+}
+
+std::string_view
+SDCard::GetMountPoint()
+{
+  return VFS_MOUNT_POINT;
 }

@@ -3,18 +3,18 @@ idf_component_register(SRCS "main.cpp"
                             "server.cpp"    
                 INCLUDE_DIRS "."
                 PRIV_REQUIRES wav_file
-                                sd_card
-                                i2s_sampler
-                                esp_netif
-                                esp_event
-                                esp_wifi
-                                nvs_flash
-                                esp_timer
-                                led_strip
-                                settings
-                                communication
-                                spiffs
-                                screen
-                                spi_driver
-                                ftp_client
+                              sd_card
+                              i2s_sampler
+                              esp_netif
+                              esp_event
+                              esp_wifi
+                              nvs_flash
+                              esp_timer
+                              led_strip
+                              settings
+                              communication
+                              spiffs
+                              screen
+                              spi_driver
+                              esp_system
 )

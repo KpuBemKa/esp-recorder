@@ -1,4 +1,9 @@
+#include <cerrno>
+#include <cstdio>
 #include <cstring>
+#include <ctime>
+#include <dirent.h>
+#include <vector>
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -10,6 +15,7 @@
 #include "esp_spiffs.h"
 #include "esp_timer.h"
 // #include "esp_vfs_fat.h"
+#include "esp_sleep.h"
 #include "esp_wifi.h"
 #include "nvs_flash.h"
 
@@ -17,6 +23,7 @@
 
 #include "communication.hpp"
 #include "ftp_client.hpp"
+// #include "FtpClient.h"
 #include "i2s_sampler.hpp"
 #include "screen_driver.hpp"
 #include "sd_card.hpp"
@@ -28,8 +35,6 @@
 #include "server.h"
 
 #include "settings.hpp"
-
-extern int32_t currentmax;
 
 #define EXAMPLE_ESP_WIFI_SSID "MARS"
 #define EXAMPLE_ESP_WIFI_PASS "789456123"
@@ -56,10 +61,6 @@ constexpr i2s_std_config_t I2S_MIC_CONFIG = {
     .ext_clk_freq_hz = 0,
     .mclk_multiple = I2S_MCLK_MULTIPLE_256,
   },
-
-  // .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(
-  //   i2s_data_bit_width_t::I2S_DATA_BIT_WIDTH_32BIT,
-  //   i2s_slot_mode_t::I2S_SLOT_MODE_MONO),
   .slot_cfg = {
     .data_bit_width = I2S_DATA_BIT_WIDTH_32BIT, 
     .slot_bit_width = I2S_SLOT_BIT_WIDTH_AUTO, 
@@ -87,355 +88,245 @@ constexpr i2s_std_config_t I2S_MIC_CONFIG = {
   }
 };
 
-ScreenDriver screen_driver;
+ScreenDriver s_screen_driver;
+Connection s_wifi_connection;
+
+bool
+StartupSetup();
+
+esp_err_t
+InitNvs();
+
+esp_err_t
+ResumeAfterSleep();
+
+esp_err_t
+EnterSleep();
 
 /// @brief Starts the recording process
 esp_err_t
-start_recording_process();
+StartRecordingProcess();
 
-/// @brief Records data from the microphone to a wav file
-/// @param file_name file name into which to record
+/// @brief Initially records data from the microphone to a temporary `temp.wav`
+/// file, and renames it after finishing. This should give enough time for
+/// system time SNTP syncronization in the background to finish
 /// @return `ESP_OK` if recording was successful, `esp_err_t` if not
 esp_err_t
-record_micro(const std::string_view file_name);
+RecordMicro();
 
-/// @brief Sends all stored files to the server, and deletes them if transfer was a success
+/// @brief Sends all stored files to the server, and deletes them if transfer
+/// was a success
 /// @return `ESP_OK` if sending was successful, `esp_err_t` if not
 esp_err_t
-send_files_to_server();
+SendStoredFilesToServer();
+
+/// @brief Check if the recording button is pressed
+/// @return `true` if recording should be started, `false` otherwise
+bool
+IsRecButtonPressed();
+
+void
+SetLedState(const bool is_enabled);
+
+/// @brief Renames the file at `temp_tile_path`
+/// to contain date and time in its name
+/// @param temp_file_path path to the temporary .wav
+/// file into which the mic recording was stored
+/// @return `ESP_OK` if successful, `ESP_FAIL` otherwise
+esp_err_t
+RenameFile(const std::string_view temp_file_path);
+
+std::vector<std::string>
+GetWavFileNames(const std::size_t max_amount);
 
 bool
-IsRecButtonPressed()
-{
-  return gpio_get_level(BUTTON_PIN) == 0;
-}
-
-void
-wait_for_button_push()
-{
-  while (gpio_get_level(BUTTON_PIN) == 0) {
-
-    vTaskDelay(25 / portTICK_PERIOD_MS);
-  }
-
-  while (gpio_get_level(BUTTON_PIN) == 1) {
-
-    vTaskDelay(25 / portTICK_PERIOD_MS);
-  }
-}
-
-// esp_err_t
-// mount_storage()
-// {
-//   LOG_I("Initializing SPIFFS...");
-
-//   esp_vfs_spiffs_conf_t conf = {
-//     .base_path = VFS_MOUNT_POINT.data(),
-//     .partition_label = nullptr,
-//     .max_files = 1, // This sets the maximum number of files that can be open at the same time
-//     .format_if_mount_failed = true
-//   };
-
-//   esp_err_t ret = esp_vfs_spiffs_register(&conf);
-//   if (ret != ESP_OK) {
-//     if (ret == ESP_FAIL) {
-//       LOG_E("Failed to mount or format filesystem");
-//     } else if (ret == ESP_ERR_NOT_FOUND) {
-//       LOG_E("Failed to find SPIFFS partition");
-//     } else {
-//       LOG_E("Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
-//     }
-//     return ret;
-//   }
-
-//   size_t total = 0, used = 0;
-//   ret = esp_spiffs_info(NULL, &total, &used);
-//   if (ret != ESP_OK) {
-//     LOG_E("Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
-//     return ret;
-//   }
-
-//   LOG_I("Partition size: total: %d, used: %d", total, used);
-
-//   return ESP_OK;
-// }
-
-esp_err_t
-recordd(const std::string_view fname)
-{
-
-  LOG_I("Preparing to record...");
-  screen_driver.Clear();
-  screen_driver.DisplayTextRow(0, "Preparing");
-  screen_driver.DisplayTextRow(1, "to record...");
-
-  // initialize the SD card & mount the partition
-  SDCard sd_card;
-  esp_err_t esp_result = sd_card.Init();
-  if (esp_result != ESP_OK) {
-    LOG_E("%s:%d | Error initializing the SD card: %s",
-          __FILE__,
-          __LINE__,
-          esp_err_to_name(esp_result));
-    screen_driver.Clear();
-    screen_driver.DisplayTextRow(0, "SD card");
-    screen_driver.DisplayTextRow(1, "error.");
-    return esp_result;
-  }
-
-  // create & initialize the I2S sampler which samples the microphone
-  I2sSampler i2s_sampler;
-  esp_result = i2s_sampler.Init(I2S_MIC_CONFIG);
-  if (esp_result != ESP_OK) {
-    LOG_E("%s:%d | Error initializing the I2S sampler: %s",
-          __FILE__,
-          __LINE__,
-          esp_err_to_name(esp_result));
-    screen_driver.Clear();
-    screen_driver.DisplayTextRow(0, "Microphone");
-    screen_driver.DisplayTextRow(1, "error.");
-    return esp_result;
-  }
-
-  // create a new wav file writer
-  WavWriter writer;
-  esp_result = writer.Open(SDCard::GetFilePath(fname) /* , MIC_SAMPLE_RATE */);
-  if (esp_result != ESP_OK) {
-    LOG_E("%s:%d | Error opening a file for writing: %s",
-          __FILE__,
-          __LINE__,
-          esp_err_to_name(esp_result));
-    screen_driver.Clear();
-    screen_driver.DisplayTextRow(0, "File error.");
-    return esp_result;
-  }
-
-  LOG_I("Recording...");
-  screen_driver.Clear();
-  screen_driver.DisplayTextRow(0, "Recording...");
-
-  // First few samples are a bit rough, it's best to discard them
-  i2s_sampler.DiscardSamples(128 * 60);
-
-  // keep writing until the user releases the button
-  while (IsRecButtonPressed()) {
-    std::vector<int16_t> samples = i2s_sampler.ReadSamples(1024);
-    writer.WriteSamples(samples);
-  }
-
-  screen_driver.Clear();
-  screen_driver.DisplayTextRow(0, "Recording");
-  screen_driver.DisplayTextRow(1, "finished.");
-  LOG_I("Finished recording.");
-
-  // stop the sampler
-  esp_result = i2s_sampler.DeInit();
-  if (esp_result != ESP_OK) {
-    LOG_E("%s:%d | Error de-initializing the I2S sampler: %s",
-          __FILE__,
-          __LINE__,
-          esp_err_to_name(esp_result));
-    return esp_result;
-  }
-
-  // finish the writing
-  writer.Close();
-  // esp_result = writer.Close();
-  // if (esp_result != ESP_OK) {
-  //   LOG_E("%s:%d | Error closing recorded .wav file: %s",
-  //         __FILE__,
-  //         __LINE__,
-  //         esp_err_to_name(esp_result));
-  //   return esp_result;
-  // }
-
-  // and de-init the sd card
-  esp_result = sd_card.DeInit();
-  if (esp_result != ESP_OK) {
-    LOG_E("%s:%d | Error closing de-initializing the SD card: %s",
-          __FILE__,
-          __LINE__,
-          esp_err_to_name(esp_result));
-    return esp_result;
-  }
-
-  LOG_I("Released used resources.");
-
-  // if (gpio_get_level(BUTTON_PIN) == 1) {
-  //   while (gpio_get_level(BUTTON_PIN) == 1) {
-  //     vTaskDelay(25 / portTICK_PERIOD_MS);
-  //   }
-  //   vTaskDelay(25 / portTICK_PERIOD_MS);
-  // }
-
-  return ESP_OK;
-}
-
-void
-led(int e)
-{
-  if (!e)
-    gpio_set_level(GPIO_NUM_11, 1);
-  else
-    gpio_set_level(GPIO_NUM_11, 0);
-}
-
-void
-setup()
-{
-  // Initialize NVS
-  esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ret = nvs_flash_init();
-  }
-  ESP_ERROR_CHECK(ret);
-
-  // LOG_I("ESP_WIFI_MODE_STA");
-
-  // wifi_init_sta();
-}
-
-// void
-// task_test_SSD1309()
-// {
-//   u8g2_esp32_hal_t u8g2_esp32_hal = U8G2_ESP32_HAL_DEFAULT;
-//   u8g2_esp32_hal.bus.spi.clk = SCREEN_PIN_SCL;
-//   u8g2_esp32_hal.bus.spi.mosi = SCREEN_PIN_SDA;
-//   u8g2_esp32_hal.bus.spi.cs = SCREEN_PIN_CS;
-//   u8g2_esp32_hal.dc = SCREEN_PIN_DC;
-//   u8g2_esp32_hal.reset = SCREEN_PIN_RESET;
-//   u8g2_esp32_hal_init(u8g2_esp32_hal);
-
-//   u8g2_t u8g2; // a structure which will contain all the data for one display
-//   u8g2_Setup_ssd1309_128x64_noname2_f(&u8g2,
-//                                       U8G2_R0,
-//                                       u8g2_esp32_spi_byte_cb,
-//                                       u8g2_esp32_gpio_and_delay_cb); // init u8g2 structure
-
-//   u8g2_InitDisplay(&u8g2); // send init sequence to the display, display is in
-//                            // sleep mode after this,
-
-//   u8g2_SetPowerSave(&u8g2, 0); // wake up display
-//   u8g2_ClearBuffer(&u8g2);
-//   u8g2_DrawBox(&u8g2, 10, 20, 20, 30);
-//   u8g2_SetFont(&u8g2, u8g2_font_ncenB14_tr);
-//   u8g2_DrawStr(&u8g2, 0, 15, "Hello World!");
-//   u8g2_SendBuffer(&u8g2);
-
-//   LOG_I("All done!");
-
-//   // vTaskDelete(NULL);
-// }
-
-static uint8_t s_led_state = 0;
-static led_strip_handle_t led_strip;
-
-void
-blink_led(void)
-{
-  /* If the addressable LED is enabled */
-  if (s_led_state) {
-    /* Set the LED pixel using RGB from 0 (0%) to 255 (100%) for each color */
-    led_strip_set_pixel(led_strip, 0, 16, 16, 16);
-    /* Refresh the strip to send data */
-    led_strip_refresh(led_strip);
-  } else {
-    /* Set all LED off to clear all pixels */
-    led_strip_clear(led_strip);
-  }
-}
-
-void
-configure_led(void)
-{
-  /* LED strip initialization with the GPIO and pixels number*/
-  led_strip_config_t strip_config = { .strip_gpio_num = ARGB_LED_PIN,
-                                      .max_leds = 1, // at least one LED on board
-                                      .led_pixel_format = led_pixel_format_t::LED_PIXEL_FORMAT_GRB,
-                                      .led_model = led_model_t::LED_MODEL_WS2812,
-                                      .flags{ .invert_out = false } };
-  // #if CONFIG_BLINK_LED_STRIP_BACKEND_RMT
-  // led_strip_rmt_config_t rmt_config{ .clk_src = rmt_clock_source_t::RMT_CLK_SRC_DEFAULT,
-  //                                    .resolution_hz = 10 * 1000 * 1000, // 10MHz
-  //                                    .mem_block_symbols = 0,
-  //                                    .flags{ .with_dma = false } };
-  // ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
-  // #elif CONFIG_BLINK_LED_STRIP_BACKEND_SPI
-  led_strip_spi_config_t spi_config{ .clk_src = spi_clock_source_t::SPI_CLK_SRC_DEFAULT,
-                                     .spi_bus = SPI2_HOST,
-                                     .flags{ .with_dma = true }
-
-  };
-  ESP_ERROR_CHECK(led_strip_new_spi_device(&strip_config, &spi_config, &led_strip));
-  // #else
-  // #error "unsupported LED strip backend"
-  // #endif
-  /* Set all LED off to clear all pixels */
-  led_strip_clear(led_strip);
-}
+IsWavFile(const std::string_view file_path);
 
 extern "C" void
 app_main(void)
 {
-  // esp_log_level_set("u8g2_hal", ESP_LOG_DEBUG);
-  // esp_log_level_set("dhcpc", ESP_LOG_INFO);
-  // esp_log_level_set("wifi", ESP_LOG_ERROR);
-  // esp_log_level_set("esp_netif_handlers", ESP_LOG_INFO);
-  // esp_log_level_set("main", ESP_LOG_INFO);
-  // esp_log_level_set("I2sSampler", ESP_LOG_INFO);
-
   LOG_I("Starting up...");
 
-  setup();
-
-  // gpio_set_direction(SD_PIN_CS, gpio_mode_t::GPIO_MODE_OUTPUT);
-  // gpio_pulldown_dis(SD_PIN_CS);
-  // gpio_pullup_en(SD_PIN_CS);
-
-  // configure_led();
-  // led_strip_set_pixel(led_strip, 0, 16, 16, 16);
-  /* Refresh the strip to send data */
-  // led_strip_refresh(led_strip);
-
-  // SDCard sd_card;
-  // esp_err_t esp_result = sd_card.Init();
-  // if (esp_result != ESP_OK) {
-  //   LOG_E("%s:%d | Error initializing the SD card: %s",
-  //         __FILE__,
-  //         __LINE__,
-  //         esp_err_to_name(esp_result));
-  // }
-
-  // task_test_SSD1309();
-
-  // LOG_I("Mounting SDCard on /sdcard");
-
-  // LOG_I("Creating microphone");
-
-  gpio_set_direction(gpio_num_t::GPIO_NUM_13, gpio_mode_t::GPIO_MODE_OUTPUT);
-
-  gpio_set_direction(BUTTON_PIN, gpio_mode_t::GPIO_MODE_INPUT);
-  gpio_set_pull_mode(BUTTON_PIN, gpio_pull_mode_t::GPIO_PULLUP_ONLY);
+  if (StartupSetup()) {
+    LOG_I("Startup has been successful. All systems nominal.");
+  } else {
+    LOG_W("Something went wrong during startup process. Proceeding anyway...");
+  }
 
   while (true) {
-    if (!IsRecButtonPressed()) {
-      vTaskDelay(pdMS_TO_TICKS(100));
-      continue;
-    }
+    // if (!IsRecButtonPressed()) {
+    //   vTaskDelay(pdMS_TO_TICKS(100));
+    //   continue;
+    // }
 
-    start_recording_process();
+    // Automatically enter sleep mode, which configures the button pin as a
+    // wake-up source. When button will be pressed, device will wake-up, and
+    // start the recording process
+    EnterSleep();
+
+    StartRecordingProcess();
   }
 }
 
+bool
+StartupSetup()
+{
+  bool full_success = true;
+
+  // Configure GPIO pins
+  esp_err_t esp_result =
+    gpio_set_direction(BUTTON_PIN, gpio_mode_t::GPIO_MODE_INPUT);
+  esp_result |=
+    gpio_set_pull_mode(BUTTON_PIN, gpio_pull_mode_t::GPIO_PULLUP_ONLY);
+  if (esp_result != ESP_OK) {
+    LOG_E("Failed to configuring GPIO: %s", esp_err_to_name(esp_result));
+    full_success = false;
+  }
+
+  if (InitNvs() != ESP_OK) {
+    LOG_E("NVS initialization failed.");
+    full_success = false;
+  }
+
+  esp_result =
+    s_wifi_connection.InitWifi(EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+  if (esp_result != ESP_OK) {
+    LOG_E("%s:%d | Error initializing Wi-Fi: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(esp_result));
+    full_success = false;
+  }
+
+  esp_result = s_wifi_connection.WaitForSntpSync();
+  if (esp_result != ESP_OK) {
+    LOG_E("%s:%d | Error waiting for SNTP system time syncronization: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(esp_result));
+    full_success = false;
+  }
+
+  return full_success;
+}
+
 esp_err_t
-start_recording_process()
+InitNvs()
+{
+  // Initialize NVS
+  esp_err_t esp_result = nvs_flash_init();
+
+  // If there were no issues, just return the success
+  if (esp_result == ESP_OK) {
+    return ESP_OK;
+  }
+
+  // If there issues but they are not related to full memory or new versions,
+  // return the failure
+  if (esp_result != ESP_ERR_NVS_NO_FREE_PAGES &&
+      esp_result != ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    LOG_E("%s:%d | Failed to initialize NVS memory: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(esp_result));
+    return esp_result;
+  }
+
+  // If memory is full or new version is found,
+  // NVS should be erased
+  if (esp_result == ESP_ERR_NVS_NO_FREE_PAGES) {
+    LOG_W("NVS memory is full.");
+  } else {
+    LOG_W("New NVS version has been found.");
+  }
+
+  LOG_W("Erasing NVS memory...");
+
+  // Erase the NVS memory
+  esp_result = nvs_flash_erase();
+  if (esp_result != ESP_OK) {
+    LOG_E("%s:%d | Failed to erase NVS memory: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(esp_result));
+    return esp_result;
+  }
+
+  // And re-initialize it
+  esp_result = nvs_flash_init();
+  if (esp_result != ESP_OK) {
+    LOG_E("%s:%d | Failed to initialize NVS memory after erase: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(esp_result));
+  }
+
+  return esp_result;
+}
+
+esp_err_t
+ResumeAfterSleep()
+{
+  bool full_success = true;
+
+  esp_err_t esp_result =
+    s_wifi_connection.InitWifi(EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+  if (esp_result != ESP_OK) {
+    LOG_E("%s:%d | Error initializing Wi-Fi: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(esp_result));
+    full_success = false;
+  }
+
+  return (full_success ? ESP_OK : ESP_FAIL);
+}
+
+esp_err_t
+EnterSleep()
+{
+  esp_err_t esp_result = s_wifi_connection.DeInitWifi();
+  if (esp_result != ESP_OK) {
+    LOG_E("%s:%d | Failed to de-initialize Wi-Fi: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(esp_result));
+  }
+
+  gpio_wakeup_enable(BUTTON_PIN, gpio_int_type_t::GPIO_INTR_LOW_LEVEL);
+  esp_sleep_enable_gpio_wakeup();
+
+  esp_result = esp_light_sleep_start();
+  if (esp_result != ESP_OK) {
+    LOG_E("%s:%d | Failed to enter sleep mode: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(esp_result));
+    return esp_result;
+  }
+
+  LOG_I("Awakened from sleep.");
+
+  esp_result = ResumeAfterSleep();
+  if (esp_result != ESP_OK) {
+    LOG_E("%s:%d | Failed resume systems after waking up: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(esp_result));
+  }
+
+  return esp_result;
+}
+
+esp_err_t
+StartRecordingProcess()
 {
   LOG_I("Preparing to record...");
 
   // Initialize the SPI bus
   spi::Spi2Bus& spi_bus = spi::Spi2Bus::GetInstance();
-  esp_err_t esp_result = spi_bus.InitBus(SPI_PIN_CLK, SPI_PIN_MOSI, SPI_PIN_MISO);
+  esp_err_t esp_result =
+    spi_bus.InitBus(SPI_PIN_CLK, SPI_PIN_MOSI, SPI_PIN_MISO);
   if (esp_result != ESP_OK) {
     LOG_E("%s:%d | Failed to initialize the SPI bus: %s",
           __FILE__,
@@ -444,12 +335,12 @@ start_recording_process()
     return esp_result;
   }
 
-  screen_driver.Init();
+  s_screen_driver.Init();
 
-  screen_driver.Clear();
-  screen_driver.Clear();
-  screen_driver.DisplayTextRow(0, "Preparing");
-  screen_driver.DisplayTextRow(1, "to record...");
+  s_screen_driver.Clear();
+  s_screen_driver.Clear();
+  s_screen_driver.DisplayTextRow(0, "Preparing");
+  s_screen_driver.DisplayTextRow(1, "to record...");
 
   // initialize the SD card & mount the partition
   SDCard sd_card;
@@ -459,14 +350,14 @@ start_recording_process()
           __FILE__,
           __LINE__,
           esp_err_to_name(esp_result));
-    screen_driver.Clear();
-    screen_driver.DisplayTextRow(0, "SD card");
-    screen_driver.DisplayTextRow(1, "error.");
+    s_screen_driver.Clear();
+    s_screen_driver.DisplayTextRow(0, "SD card");
+    s_screen_driver.DisplayTextRow(1, "error.");
     return esp_result;
   }
 
-  if (record_micro("test.wav") == ESP_OK) {
-    esp_result = send_files_to_server();
+  if (RecordMicro() == ESP_OK) {
+    esp_result = SendStoredFilesToServer();
 
     screen_driver.Clear();
     screen_driver.DisplayTextRow(0, "Recording");
@@ -480,17 +371,24 @@ start_recording_process()
     }
   }
 
-  esp_result = send_files_to_server();
+    if (esp_result == ESP_OK) {
+      s_screen_driver.DisplayTextRow(2, "success.");
+    } else {
+      LOG_E("Error transmitting recorded files: %s",
+            esp_err_to_name(esp_result));
+      s_screen_driver.DisplayTextRow(2, "error.");
+    }
+  }
 
-  screen_driver.Clear();
-  screen_driver.DisplayTextRow(0, "Recording");
-  screen_driver.DisplayTextRow(1, "transmission");
+  s_screen_driver.Clear();
+  s_screen_driver.DisplayTextRow(0, "Recording");
+  s_screen_driver.DisplayTextRow(1, "transmission");
 
   if (esp_result == ESP_OK) {
-    screen_driver.DisplayTextRow(2, "success.");
+    s_screen_driver.DisplayTextRow(2, "success.");
   } else {
     LOG_E("Error transmitting recorded files: %s", esp_err_to_name(esp_result));
-    screen_driver.DisplayTextRow(2, "error.");
+    s_screen_driver.DisplayTextRow(2, "error.");
   }
 
   // de-init the sd card
@@ -504,7 +402,7 @@ start_recording_process()
   }
 
   // de-init the screen
-  esp_result = screen_driver.DeInit();
+  esp_result = s_screen_driver.DeInit();
   if (esp_result != ESP_OK) {
     LOG_E("%s:%d | Error de-initializing the screen: %s",
           __FILE__,
@@ -525,18 +423,11 @@ start_recording_process()
 
   LOG_I("Released used resources.");
 
-  // if (gpio_get_level(BUTTON_PIN) == 1) {
-  //   while (gpio_get_level(BUTTON_PIN) == 1) {
-  //     vTaskDelay(25 / portTICK_PERIOD_MS);
-  //   }
-  //   vTaskDelay(25 / portTICK_PERIOD_MS);
-  // }
-
   return ESP_OK;
 }
 
 esp_err_t
-record_micro(const std::string_view file_name)
+RecordMicro()
 {
   // create & initialize the I2S sampler which samples the microphone
   I2sSampler i2s_sampler;
@@ -546,22 +437,24 @@ record_micro(const std::string_view file_name)
           __FILE__,
           __LINE__,
           esp_err_to_name(esp_result));
-    screen_driver.Clear();
-    screen_driver.DisplayTextRow(0, "Microphone");
-    screen_driver.DisplayTextRow(1, "error.");
+    s_screen_driver.Clear();
+    s_screen_driver.DisplayTextRow(0, "Microphone");
+    s_screen_driver.DisplayTextRow(1, "error.");
     return esp_result;
   }
 
+  const std::string temp_file_path = SDCard::GetFilePath("temp.wav");
+
   // create a new wav file writer
   WavWriter writer;
-  esp_result = writer.Open(SDCard::GetFilePath("test.wav") /* , MIC_SAMPLE_RATE */);
+  esp_result = writer.Open(temp_file_path);
   if (esp_result != ESP_OK) {
     LOG_E("%s:%d | Error opening a file for writing: %s",
           __FILE__,
           __LINE__,
           esp_err_to_name(esp_result));
-    screen_driver.Clear();
-    screen_driver.DisplayTextRow(0, "File error.");
+    s_screen_driver.Clear();
+    s_screen_driver.DisplayTextRow(0, "File error.");
     return esp_result;
   }
 
@@ -569,8 +462,8 @@ record_micro(const std::string_view file_name)
   i2s_sampler.DiscardSamples(128 * 60);
 
   LOG_I("Recording...");
-  screen_driver.Clear();
-  screen_driver.DisplayTextRow(0, "Recording...");
+  s_screen_driver.Clear();
+  s_screen_driver.DisplayTextRow(0, "Recording...");
 
   // keep writing until the user releases the button
   while (IsRecButtonPressed()) {
@@ -578,9 +471,9 @@ record_micro(const std::string_view file_name)
     writer.WriteSamples(samples);
   }
 
-  screen_driver.Clear();
-  screen_driver.DisplayTextRow(0, "Recording");
-  screen_driver.DisplayTextRow(1, "finished.");
+  s_screen_driver.Clear();
+  s_screen_driver.DisplayTextRow(0, "Recording");
+  s_screen_driver.DisplayTextRow(1, "finished.");
   LOG_I("Finished recording.");
 
   // stop the sampler
@@ -596,79 +489,190 @@ record_micro(const std::string_view file_name)
   // finish the writing
   writer.Close();
 
+  esp_result = RenameFile(temp_file_path);
+  if (esp_result != ESP_OK) {
+    LOG_E("%s:%d | Error renaming file: %s",
+          __FILE__,
+          __LINE__,
+          esp_err_to_name(esp_result));
+    return esp_result;
+  }
+
   return ESP_OK;
 }
 
 esp_err_t
-send_files_to_server()
+SendStoredFilesToServer()
 {
-  Connection wifi_connection;
-  const esp_err_t esp_result =
-    wifi_connection.InitWifi(EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
-  if (esp_result != ESP_OK) {
-    LOG_E("%s:%d | Error initializing Wi-Fi: %s", __FILE__, __LINE__, esp_err_to_name(esp_result));
-    return esp_result;
-  }
-
   // Open FTP server
   LOG_I("ftp server: %s", CONFIG_FTP_SERVER);
   LOG_I("ftp user  : %s", CONFIG_FTP_USER);
-  static NetBuf_t* ftpClientNetBuf = NULL;
-  FtpClient* ftpClient = getFtpClient();
-  // int connect = ftpClient->ftpClientConnect(CONFIG_FTP_SERVER, 21, &ftpClientNetBuf);
-  // int connect = ftpClient->ftpClientConnect(CONFIG_FTP_SERVER, 2121, &ftpClientNetBuf);
-  int connect = ftpClient->ftpClientConnect(CONFIG_FTP_SERVER, CONFIG_FTP_PORT, &ftpClientNetBuf);
+
+  FtpClient ftpClient;
+
+  int connect = ftpClient.ftpClientConnect(CONFIG_FTP_SERVER, CONFIG_FTP_PORT);
   LOG_I("connect=%d", connect);
   if (connect == 0) {
     LOG_E("FTP server connect fail");
     return ESP_FAIL;
   }
 
-  // Login FTP server
-  int login = ftpClient->ftpClientLogin(CONFIG_FTP_USER, CONFIG_FTP_PASSWORD, ftpClientNetBuf);
+  // Login to the FTP server
+  int login = ftpClient.ftpClientLogin(CONFIG_FTP_USER, CONFIG_FTP_PASSWORD);
   LOG_I("login=%d", login);
   if (login == 0) {
     LOG_E("FTP server login fail");
     return ESP_FAIL;
   }
 
-  // // Remote Directory
-  // char line[128];
-  // // ftpClient->ftpClientDir(outFileName, "/", ftpClientNetBuf);
-  // ftpClient->ftpClientDir(outFileName, ".", ftpClientNetBuf);
-  // FILE* f = fopen(outFileName, "r");
-  // if (f == NULL) {
-  //   LOG_E("Failed to open file for reading");
-  //   return;
-  // }
-  // while (fgets(line, sizeof(line), f) != NULL) {
-  //   int len = strlen(line);
-  //   line[len - 1] = 0;
-  //   LOG_I("%s", line);
-  // }
-  // fclose(f);
-  // LOG_I("");
+  std::vector<std::string> wav_names = GetWavFileNames(8);
 
-  // // Use POSIX and C standard library functions to work with files.
-  // // Create file
-  // f = fopen(srcFileName, "w");
-  // if (f == NULL) {
-  //   LOG_E("Failed to open file for writing");
-  //   return;
-  // }
-  // fprintf(f, "Hello World!\n");
-  // fclose(f);
-  // LOG_I("Wrote the text on %s", srcFileName);
+  for (auto wav_file : wav_names) {
+    const std::string file_path = SDCard::GetFilePath(wav_file);
 
-  const std::string wav_filepath = SDCard::GetFilePath("test.wav");
+    LOG_I("Uploading '%.*s'...", file_path.length(), file_path.c_str());
 
-  // Put file to FTP server
-  ftpClient->ftpClientPut(wav_filepath.c_str(), "test.wav", FTP_CLIENT_BINARY, ftpClientNetBuf);
-  LOG_I("ftpClientPut %s ---> %s", wav_filepath.c_str(), ".");
+    int result = ftpClient.ftpClientPut(
+      file_path.c_str(), wav_file.c_str(), FTP_CLIENT_BINARY);
+    if (result != 1) {
+      LOG_E("%s:%d | Error uploading '%.*s' to the server.",
+            __FILE__,
+            __LINE__,
+            file_path.length(),
+            file_path.c_str());
+      return ESP_FAIL;
+    }
 
-  ftpClient->ftpClientQuit(ftpClientNetBuf);
+    result = std::remove(file_path.c_str());
+    if (result != 0) {
+      LOG_E("%s:%d | Error deleting '%.*s': %d = %s",
+            __FILE__,
+            __LINE__,
+            file_path.length(),
+            file_path.c_str(),
+            errno,
+            strerror(errno));
+    }
+  }
 
-  wifi_connection.DeInitWifi();
+  ftpClient.ftpClientQuit();
 
   return ESP_OK;
+}
+
+bool
+IsRecButtonPressed()
+{
+  return gpio_get_level(BUTTON_PIN) == 0;
+}
+
+esp_err_t
+RenameFile(const std::string_view temp_file_path)
+{
+  constexpr std::size_t file_name_length =
+    DEVICE_NAME.length() + sizeof("_0000-00-00_00-00-00.wav");
+
+  // Get current time
+  const std::time_t now_time = std::time(nullptr);
+  const std::tm* dt = std::localtime(&now_time);
+
+  // Create the buffer, and set it to the needed length
+  std::string new_file_name(file_name_length, '\0');
+
+  sprintf(new_file_name.data(),
+          "%.*s_%04d-%02d-%02d_%02d-%02d-%02d.wav",
+          DEVICE_NAME.length(),
+          DEVICE_NAME.data(),
+          dt->tm_year + 1900,
+          dt->tm_mon,
+          dt->tm_mday,
+          dt->tm_hour,
+          dt->tm_min,
+          dt->tm_sec);
+
+  LOG_I("New file name: %s", new_file_name.c_str());
+
+  const std::string new_path = SDCard::GetFilePath(new_file_name);
+
+  if (std::rename(temp_file_path.data(), new_path.c_str()) != 0) {
+    LOG_E("%s:%d | Unable to rename the file: %d = %s",
+          __FILE__,
+          __LINE__,
+          errno,
+          strerror(errno));
+    return ESP_FAIL;
+  }
+
+  return ESP_OK;
+}
+
+std::vector<std::string>
+GetWavFileNames(const std::size_t max_amount)
+{
+  DIR* dir;
+  dir = opendir(SDCard::GetMountPoint().data());
+
+  if (dir == nullptr) {
+    return {};
+  }
+
+  std::size_t file_count = 0;
+  dirent* dir_entity;
+  std::vector<std::string> wav_names;
+
+  while ((dir_entity = readdir(dir)) != nullptr && file_count < max_amount) {
+    // skip the directory entity if it's not a file
+    if (dir_entity->d_type != DT_REG) {
+      LOG_I("'%s' is not a file. Skipping...", dir_entity->d_name);
+      continue;
+    }
+
+    const std::string_view file_path(dir_entity->d_name);
+
+    // skip the file if it's not a .wav file
+    if (!IsWavFile(file_path)) {
+      LOG_I("'%s' is not a .wav file. Skipping...", dir_entity->d_name);
+      continue;
+    }
+
+    wav_names.push_back(std::string(file_path));
+
+    LOG_I("'%.*s' has been added to the list",
+          file_path.length(),
+          file_path.data());
+  }
+
+  closedir(dir);
+
+  return wav_names;
+}
+
+bool
+IsWavFile(const std::string_view file_path)
+{
+  return file_path.substr(file_path.find_last_of(".")) == ".wav";
+
+  // const std::size_t dot_index = file_path.rfind(".");
+
+  // LOG_I("Dot index: %u | extension length: %u",
+  //       dot_index,
+  //       file_path.length() - dot_index);
+
+  // // if the amount of characters after the dot is not three,
+  // // it is definitely not a .wav file
+  // if (file_path.length() - dot_index != 4) {
+  //   return false;
+  // }
+
+  // const std::string_view file_extension = file_path.substr(dot_index + 1, 3);
+
+  // LOG_I("File extension: %.*s", file_extension.length(),
+  // file_extension.data());
+
+  // return file_extension == "wav";
+}
+
+void
+SetLedState(const bool is_enabled)
+{
 }

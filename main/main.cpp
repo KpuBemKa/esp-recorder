@@ -359,36 +359,17 @@ StartRecordingProcess()
   if (RecordMicro() == ESP_OK) {
     esp_result = SendStoredFilesToServer();
 
-    screen_driver.Clear();
-    screen_driver.DisplayTextRow(0, "Recording");
-    screen_driver.DisplayTextRow(1, "transmission");
-
-    if (esp_result == ESP_OK) {
-      screen_driver.DisplayTextRow(2, "success.");
-    } else {
-      LOG_E("Error transmitting recorded files: %s", esp_err_to_name(esp_result));
-      screen_driver.DisplayTextRow(2, "error.");
-    }
-  }
+    s_screen_driver.Clear();
+    s_screen_driver.DisplayTextRow(0, "Recording");
+    s_screen_driver.DisplayTextRow(1, "transmission");
 
     if (esp_result == ESP_OK) {
       s_screen_driver.DisplayTextRow(2, "success.");
     } else {
+      s_screen_driver.DisplayTextRow(2, "error.");
       LOG_E("Error transmitting recorded files: %s",
             esp_err_to_name(esp_result));
-      s_screen_driver.DisplayTextRow(2, "error.");
     }
-  }
-
-  s_screen_driver.Clear();
-  s_screen_driver.DisplayTextRow(0, "Recording");
-  s_screen_driver.DisplayTextRow(1, "transmission");
-
-  if (esp_result == ESP_OK) {
-    s_screen_driver.DisplayTextRow(2, "success.");
-  } else {
-    LOG_E("Error transmitting recorded files: %s", esp_err_to_name(esp_result));
-    s_screen_driver.DisplayTextRow(2, "error.");
   }
 
   // de-init the sd card
@@ -594,10 +575,14 @@ RenameFile(const std::string_view temp_file_path)
 
   const std::string new_path = SDCard::GetFilePath(new_file_name);
 
-  if (std::rename(temp_file_path.data(), new_path.c_str()) != 0) {
-    LOG_E("%s:%d | Unable to rename the file: %d = %s",
+  if (rename(temp_file_path.data(), new_path.c_str()) != 0) {
+    LOG_E("%s:%d | Unable to rename '%.*s' to '%.*s'. errno: %d = %s",
           __FILE__,
           __LINE__,
+          temp_file_path.length(),
+          temp_file_path.data(),
+          new_path.length(),
+          new_path.c_str(),
           errno,
           strerror(errno));
     return ESP_FAIL;
@@ -664,7 +649,8 @@ IsWavFile(const std::string_view file_path)
   //   return false;
   // }
 
-  // const std::string_view file_extension = file_path.substr(dot_index + 1, 3);
+  // const std::string_view file_extension = file_path.substr(dot_index + 1,
+  // 3);
 
   // LOG_I("File extension: %.*s", file_extension.length(),
   // file_extension.data());

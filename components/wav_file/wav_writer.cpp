@@ -1,6 +1,7 @@
 #include "wav_writer.hpp"
 
 #include <cerrno>
+#include <cstring>
 
 #include "esp_log.h"
 
@@ -18,7 +19,8 @@ const char TAG[] = "SD_CARD";
 #define LOG_W(...) ESP_LOGW(TAG, __VA_ARGS__)
 
 esp_err_t
-WavWriter::Open(const std::string_view file_path/* , const std::size_t sample_rate */)
+WavWriter::Open(
+  const std::string_view file_path /* , const std::size_t sample_rate */)
 {
   LOG_I("Opening file '%.*s'...", file_path.size(), file_path.data());
 
@@ -31,7 +33,8 @@ WavWriter::Open(const std::string_view file_path/* , const std::size_t sample_ra
 
   // m_header.sample_rate = sample_rate;
   // write out the header - we'll fill in some of the blanks later
-  const std::size_t written = std::fwrite(&m_header, sizeof(wav_header_t), 1, m_fp);
+  const std::size_t written =
+    std::fwrite(&m_header, sizeof(wav_header_t), 1, m_fp);
   if (written != 1) {
     LOG_E("%s:%d | Error writing the WAV header:", __FILE__, __LINE__);
     perror("");
@@ -43,11 +46,13 @@ WavWriter::Open(const std::string_view file_path/* , const std::size_t sample_ra
   return ESP_OK;
 }
 
-void
+esp_err_t
 WavWriter::Close()
 {
   if (m_fp != nullptr) {
-    FinishAndClose();
+    return FinishAndClose();
+  } else {
+    return ESP_OK;
   }
 }
 
@@ -60,7 +65,8 @@ void
 WavWriter::WriteSamples(const std::span<int16_t> samples)
 {
   // write the samples and keep track of the file size so far
-  const std::size_t written = fwrite(samples.data(), sizeof(samples[0]), samples.size(), m_fp);
+  const std::size_t written =
+    fwrite(samples.data(), sizeof(samples[0]), samples.size(), m_fp);
   if (written != samples.size()) {
     LOG_E("%s:%d | Error writing samples. Samples to write: %u | written: %u",
           __FILE__,
@@ -73,7 +79,7 @@ WavWriter::WriteSamples(const std::span<int16_t> samples)
   m_file_size += sizeof(samples[0]) * written;
 }
 
-void
+esp_err_t
 WavWriter::FinishAndClose()
 {
   ESP_LOGI(TAG, "Finished wav file size: %d", m_file_size);
@@ -85,7 +91,16 @@ WavWriter::FinishAndClose()
   fseek(m_fp, 0, SEEK_SET);
   fwrite(&m_header, sizeof(m_header), 1, m_fp);
 
-  fclose(m_fp);
+  if (fclose(m_fp) != 0) {
+    LOG_E("%s:%d | Unable to close the file. errno: %d = %s",
+          __FILE__,
+          __LINE__,
+          errno,
+          std::strerror(errno));
+    return ESP_FAIL;
+  }
 
   m_fp = nullptr;
+
+  return ESP_OK;
 }

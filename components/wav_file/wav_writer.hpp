@@ -13,14 +13,14 @@ class WavWriter
 {
 public:
   esp_err_t Open(const std::string_view file_path/* , const std::size_t sample_rate */);
-  void Close();
+  esp_err_t Close();
 
   ~WavWriter();
 
   void WriteSamples(const std::span<int16_t> samples);
 
 private:
-  void FinishAndClose();
+  esp_err_t FinishAndClose();
 
 private:
   FILE* m_fp;

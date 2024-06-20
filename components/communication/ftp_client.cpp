@@ -647,7 +647,7 @@ FtpClient::ftpClientClearCallback(NetBuf* nControl)
  * return 1 if connected, 0 if not
  */
 int
-FtpClient::ftpClientConnect(const char* host, uint16_t port/* , NetBuf** nControl */)
+FtpClient::ftpClientConnect(const char* host, uint16_t port)
 {
   ESP_LOGD(__FUNCTION__, "host=%s", host);
   struct sockaddr_in sin;

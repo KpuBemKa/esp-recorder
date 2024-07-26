@@ -91,31 +91,58 @@ constexpr i2s_std_config_t I2S_MIC_CONFIG = {
 ScreenDriver s_screen_driver;
 Connection s_wifi_connection;
 
+/// @brief
+/// Startup procedure after a reset.
+/// Initializes the NVS, Wi-Fi and synchronizes system time via SNTP.
+/// @return `true` if no issues detected, `false` otherwise
 bool
 StartupSetup();
 
+/// @brief Initializes the NVS. It will be formatted in case memory is full.
+/// @return `ESP_OK` in case of success, `esp_err_t` otherwise
 esp_err_t
 InitNvs();
 
+/// @brief
+/// Initializes Wi-Fi and starts the SNTP synchronization,
+/// but does no wait for the sync to complete.
+/// @return `ESP_OK` in case of success, `esp_err_t` otherwise
 esp_err_t
 ResumeAfterSleep();
 
+/// @brief
+/// Stops the Wi-Fi, configures the recording button to be the wake up source,
+/// and enters into the light sleep mode.
+/// Automatically invokes `ResumeAfterSleep()` after waking up
+/// @return `ESP_OK` in case of success, `esp_err_t` otherwise
 esp_err_t
 EnterSleep();
 
-/// @brief Starts the recording process
+/// @brief
+/// Initializes needed resources (SPI bus, SD card, screen driver, etc.),
+/// records audio into a .wav file with timestamp in its name,
+/// then tries to send all stored .wav files to the server,
+/// after which they will be deleted if successfully delivered.
+/// @return `ESP_OK` in case of success, `esp_err_t` otherwise
 esp_err_t
 StartRecordingProcess();
 
-/// @brief Initially records data from the microphone to a temporary `temp.wav`
-/// file, and renames it after finishing. This should give enough time for
-/// system time SNTP syncronization in the background to finish
-/// @return `ESP_OK` if recording was successful, `esp_err_t` if not
+/// @brief
+/// Initializes the I2S audio sampler,
+/// records data from it into a temporary .wav file while the recording button
+/// is pushed, renames the temp file to a name which contains the device name
+/// and a timestamp.
+///
+/// Note: Because `ResumeAfterSleep()` does not wait for system time to
+/// synchronize via SNTP, file timestamp may be inaccurate if recording is short
+/// enough.
+/// @return `ESP_OK` if recording was successful & file renamed, `esp_err_t`
+/// otherwise
 esp_err_t
 RecordMicro();
 
-/// @brief Sends all stored files to the server, and deletes them if transfer
-/// was a success
+/// @brief Sends all stored .wav files to the server, and deletes them if
+/// transfer was a success
 /// @return `ESP_OK` if sending was successful, `esp_err_t` if not
 esp_err_t
 SendStoredFilesToServer();
@@ -136,9 +163,17 @@ SetLedState(const bool is_enabled);
 esp_err_t
 RenameFile(const std::string_view temp_file_path);
 
+/// @brief Returns an array of file names in the root directory
+/// which should be sent to the remote server
+/// @param max_amount maximum amount if file names to return
+/// @return An array of file names in the root directory
+/// which should be sent to the remote server
 std::vector<std::string>
 GetWavFileNames(const std::size_t max_amount);
 
+/// @brief Checks if the file's extension at `file_path` is .wav
+/// @param file_path path to the file to check
+/// @return `true` if `file_path` is a .wav file, `false` otherwise
 bool
 IsWavFile(const std::string_view file_path);
 
@@ -154,12 +189,7 @@ app_main(void)
   }
 
   while (true) {
-    // if (!IsRecButtonPressed()) {
-    //   vTaskDelay(pdMS_TO_TICKS(100));
-    //   continue;
-    // }
-
-    // Automatically enter sleep mode, which configures the button pin as a
+    // Instantly enter sleep mode, which configures the button pin as a
     // wake-up source. When button will be pressed, device will wake-up, and
     // start the recording process
     EnterSleep();
@@ -200,7 +230,7 @@ StartupSetup()
 
   esp_result = s_wifi_connection.WaitForSntpSync();
   if (esp_result != ESP_OK) {
-    LOG_E("%s:%d | Error waiting for SNTP system time syncronization: %s",
+    LOG_E("%s:%d | Error waiting for SNTP system time synchronization: %s",
           __FILE__,
           __LINE__,
           esp_err_to_name(esp_result));

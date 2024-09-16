@@ -10,14 +10,14 @@ constexpr std::size_t MIC_SAMPLE_RATE = 16'000; // Hz
 // constexpr std::size_t MIC_SAMPLE_RATE = 44'100; // Hz
 
 // I2S microphone pins
-constexpr gpio_num_t I2S_MIC_SERIAL_DATA = gpio_num_t::GPIO_NUM_23;
-constexpr gpio_num_t I2S_MIC_SERIAL_CLOCK = gpio_num_t::GPIO_NUM_22;
-constexpr gpio_num_t I2S_MIC_WORD_SELECT = gpio_num_t::GPIO_NUM_21;
+constexpr gpio_num_t I2S_MIC_SERIAL_DATA = gpio_num_t::GPIO_NUM_9;
+constexpr gpio_num_t I2S_MIC_SERIAL_CLOCK = gpio_num_t::GPIO_NUM_18;
+constexpr gpio_num_t I2S_MIC_WORD_SELECT = gpio_num_t::GPIO_NUM_19;
 // constexpr gpio_num_t I2S_MIC_SERIAL_DATA = gpio_num_t::GPIO_NUM_22;
 // constexpr gpio_num_t I2S_MIC_LEFT_RIGHT_CLOCK = gpio_num_t::GPIO_NUM_21;
 
 // Record button pin
-constexpr gpio_num_t BUTTON_PIN = gpio_num_t::GPIO_NUM_15;
+constexpr gpio_num_t BUTTON_PIN = gpio_num_t::GPIO_NUM_13;
 
 // Internal addressable RGB LED
 constexpr gpio_num_t ARGB_LED_PIN = gpio_num_t::GPIO_NUM_8;
@@ -27,7 +27,7 @@ constexpr gpio_num_t SPI_PIN_MOSI = gpio_num_t::GPIO_NUM_7;
 constexpr gpio_num_t SPI_PIN_MISO = gpio_num_t::GPIO_NUM_2;
 
 // SD card pins
-constexpr gpio_num_t SD_PIN_CS = gpio_num_t::GPIO_NUM_19;
+constexpr gpio_num_t SD_PIN_CS = gpio_num_t::GPIO_NUM_12;
 
 // Screen pins
 constexpr gpio_num_t SCREEN_PIN_RESET = gpio_num_t::GPIO_NUM_10;

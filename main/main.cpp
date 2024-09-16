@@ -147,6 +147,16 @@ RecordMicro();
 esp_err_t
 SendStoredFilesToServer();
 
+/// @brief Upload a single file to the remote server, and delete the local one
+/// if upload succeeded
+/// @param ftp_client reference to the ftp client object
+/// @param file_name local file name of the file to be sent; not the absolute
+/// path
+/// @return `ESP_OK` if success, `esp_err_t` otherwise
+esp_err_t
+UploadFileToServerAndDelete(FtpClient& ftp_client,
+                            const std::string_view file_name);
+
 /// @brief Check if the recording button is pressed
 /// @return `true` if recording should be started, `false` otherwise
 bool
@@ -365,12 +375,12 @@ StartRecordingProcess()
     return esp_result;
   }
 
-  s_screen_driver.Init();
+  // s_screen_driver.Init();
 
-  s_screen_driver.Clear();
-  s_screen_driver.Clear();
-  s_screen_driver.DisplayTextRow(0, "Preparing");
-  s_screen_driver.DisplayTextRow(1, "to record...");
+  // s_screen_driver.Clear();
+  // s_screen_driver.Clear();
+  // s_screen_driver.DisplayTextOnRow(0, "Preparing");
+  // s_screen_driver.DisplayTextOnRow(1, "to record...");
 
   // initialize the SD card & mount the partition
   SDCard sd_card;
@@ -380,23 +390,27 @@ StartRecordingProcess()
           __FILE__,
           __LINE__,
           esp_err_to_name(esp_result));
-    s_screen_driver.Clear();
-    s_screen_driver.DisplayTextRow(0, "SD card");
-    s_screen_driver.DisplayTextRow(1, "error.");
+    // s_screen_driver.Clear();
+    // s_screen_driver.DisplayTextOnRow(0, "SD card");
+    // s_screen_driver.DisplayTextOnRow(1, "error.");
     return esp_result;
   }
 
   if (RecordMicro() == ESP_OK) {
+    // s_screen_driver.Clear();
+    // s_screen_driver.DisplayTextOnRow(0, "Uploading the");
+    // s_screen_driver.DisplayTextOnRow(1, "recording...");
+
     esp_result = SendStoredFilesToServer();
 
-    s_screen_driver.Clear();
-    s_screen_driver.DisplayTextRow(0, "Recording");
-    s_screen_driver.DisplayTextRow(1, "transmission");
+    // s_screen_driver.Clear();
+    // s_screen_driver.DisplayTextOnRow(0, "Recording");
+    // s_screen_driver.DisplayTextOnRow(1, "transmission");
 
     if (esp_result == ESP_OK) {
-      s_screen_driver.DisplayTextRow(2, "success.");
+      // s_screen_driver.DisplayTextOnRow(2, "success.");
     } else {
-      s_screen_driver.DisplayTextRow(2, "error.");
+      // s_screen_driver.DisplayTextOnRow(2, "error.");
       LOG_E("Error transmitting recorded files: %s",
             esp_err_to_name(esp_result));
     }
@@ -413,7 +427,7 @@ StartRecordingProcess()
   }
 
   // de-init the screen
-  esp_result = s_screen_driver.DeInit();
+  // esp_result = s_screen_driver.DeInit();
   if (esp_result != ESP_OK) {
     LOG_E("%s:%d | Error de-initializing the screen: %s",
           __FILE__,
@@ -448,9 +462,9 @@ RecordMicro()
           __FILE__,
           __LINE__,
           esp_err_to_name(esp_result));
-    s_screen_driver.Clear();
-    s_screen_driver.DisplayTextRow(0, "Microphone");
-    s_screen_driver.DisplayTextRow(1, "error.");
+    // s_screen_driver.Clear();
+    // s_screen_driver.DisplayTextOnRow(0, "Microphone");
+    // s_screen_driver.DisplayTextOnRow(1, "error.");
     return esp_result;
   }
 
@@ -464,8 +478,8 @@ RecordMicro()
           __FILE__,
           __LINE__,
           esp_err_to_name(esp_result));
-    s_screen_driver.Clear();
-    s_screen_driver.DisplayTextRow(0, "File error.");
+    // s_screen_driver.Clear();
+    // s_screen_driver.DisplayTextOnRow(0, "File error.");
     return esp_result;
   }
 
@@ -473,8 +487,8 @@ RecordMicro()
   i2s_sampler.DiscardSamples(128 * 60);
 
   LOG_I("Recording...");
-  s_screen_driver.Clear();
-  s_screen_driver.DisplayTextRow(0, "Recording...");
+  // s_screen_driver.Clear();
+  // s_screen_driver.DisplayTextOnRow(0, "Recording...");
 
   // keep writing until the user releases the button
   while (IsRecButtonPressed()) {
@@ -482,9 +496,9 @@ RecordMicro()
     writer.WriteSamples(samples);
   }
 
-  s_screen_driver.Clear();
-  s_screen_driver.DisplayTextRow(0, "Recording");
-  s_screen_driver.DisplayTextRow(1, "finished.");
+  // s_screen_driver.Clear();
+  // s_screen_driver.DisplayTextOnRow(0, "Recording");
+  // s_screen_driver.DisplayTextOnRow(1, "finished.");
   LOG_I("Finished recording.");
 
   // stop the sampler
@@ -525,6 +539,9 @@ SendStoredFilesToServer()
   LOG_I("connect=%d", connect);
   if (connect == 0) {
     LOG_E("FTP server connect fail");
+    // s_screen_driver.Clear();
+    // s_screen_driver.DisplayTextOnRow(0, "Connection");
+    // s_screen_driver.DisplayTextOnRow(1, "failed.");
     return ESP_FAIL;
   }
 
@@ -533,42 +550,61 @@ SendStoredFilesToServer()
   LOG_I("login=%d", login);
   if (login == 0) {
     LOG_E("FTP server login fail");
+    // s_screen_driver.Clear();
+    // s_screen_driver.DisplayTextOnRow(0, "Login");
+    // s_screen_driver.DisplayTextOnRow(1, "failed.");
     return ESP_FAIL;
   }
 
   std::vector<std::string> wav_names = GetWavFileNames(8);
 
-  for (auto wav_file : wav_names) {
-    const std::string file_path = SDCard::GetFilePath(wav_file);
-
-    LOG_I("Uploading '%.*s'...", file_path.length(), file_path.c_str());
-
-    int result = ftpClient.ftpClientPut(
-      file_path.c_str(), wav_file.c_str(), FTP_CLIENT_BINARY);
-    if (result != 1) {
-      LOG_E("%s:%d | Error uploading '%.*s' to the server.",
-            __FILE__,
-            __LINE__,
-            file_path.length(),
-            file_path.c_str());
-      return ESP_FAIL;
+  while (wav_names.size() > 0) {
+    for (auto& wav_file : wav_names) {
+      UploadFileToServerAndDelete(ftpClient, wav_file);
     }
 
-    result = std::remove(file_path.c_str());
-    if (result != 0) {
-      LOG_E("%s:%d | Error deleting '%.*s': %d = %s",
-            __FILE__,
-            __LINE__,
-            file_path.length(),
-            file_path.c_str(),
-            errno,
-            strerror(errno));
-    }
+    wav_names = GetWavFileNames(8);
   }
 
   ftpClient.ftpClientQuit();
 
   return ESP_OK;
+}
+
+esp_err_t
+UploadFileToServerAndDelete(FtpClient& ftp_client,
+                            const std::string_view file_name)
+{
+  LOG_I("Uploading '%.*s'...", file_name.length(), file_name.data());
+
+  const std::string file_path = SDCard::GetFilePath(file_name);
+
+  int result = ftp_client.ftpClientPut(
+    file_path.c_str(), file_name.data(), FTP_CLIENT_BINARY);
+  if (result != 1) {
+    LOG_E("%s:%d | Error uploading '%.*s' to the server.",
+          __FILE__,
+          __LINE__,
+          file_name.length(),
+          file_name.data());
+    // s_screen_driver.Clear();
+    // s_screen_driver.DisplayTextOnRow(0, "Upload");
+    // s_screen_driver.DisplayTextOnRow(1, "failed.");
+    return ESP_FAIL;
+  }
+
+  result = std::remove(file_path.c_str());
+  if (result != 0) {
+    LOG_E("%s:%d | Error deleting '%.*s': %d = %s",
+          __FILE__,
+          __LINE__,
+          file_path.length(),
+          file_path.c_str(),
+          errno,
+          strerror(errno));
+  }
+
+  return result;
 }
 
 bool

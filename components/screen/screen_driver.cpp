@@ -65,7 +65,7 @@ ScreenDriver::DisplayText(const uint16_t x, const uint16_t y, const std::string_
 }
 
 void
-ScreenDriver::DisplayTextRow(const uint16_t row, const std::string_view text)
+ScreenDriver::DisplayTextOnRow(const uint16_t row, const std::string_view text)
 {
   constexpr uint16_t x_offset = 1;
   const uint16_t y_offset = 1 + row * 2; // add two pixela between rows

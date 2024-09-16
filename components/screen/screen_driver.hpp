@@ -16,7 +16,7 @@ public:
   void Clear();
 
   void DisplayText(const uint16_t x, const uint16_t y, const std::string_view text);
-  void DisplayTextRow(const uint16_t row, const std::string_view text);
+  void DisplayTextOnRow(const uint16_t row, const std::string_view text);
 
 private:
   esp_err_t ConnectSpi();
